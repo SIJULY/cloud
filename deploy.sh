@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # ==============================================================================
-#           一键部署 Python + Flask + Gunicorn + Nginx 个人网盘项目 (V2.2 - 超时与配额)
+#           一键部署 Python + Flask + Gunicorn + Nginx 个人网盘项目 (V2.3 - 终极版)
 #
+# 功能: 完整的用户、文件、文件夹管理，上传进度条，超时设置，磁盘配额，分享链接。
 # 使用方法:
 # 1. 将此脚本完整内容托管于你自己的GitHub仓库或Gist。
 # 2. 获取其 Raw URL。
@@ -15,7 +16,7 @@
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # --- 检查是否为root用户 ---
 if [ "$(id -u)" -ne 0 ]; then
@@ -25,7 +26,7 @@ fi
 
 clear
 echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}  欢迎使用个人网盘一键部署脚本！ (V2.2 - 超时与配额) ${NC}"
+echo -e "${GREEN}  欢迎使用个人网盘一键部署脚本！ (V2.3 - 终极版)   ${NC}"
 echo -e "${GREEN}  本脚本将引导您完成所有必要的设置。            ${NC}"
 echo -e "${GREEN}=====================================================${NC}"
 echo
@@ -40,9 +41,7 @@ while true; do
     echo
     if [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi
 done
-
 read -p "请输入您的域名或服务器公网IP地址: " DOMAIN_OR_IP
-
 read -p "请为您的网盘应用设置一个登录用户名 (例如: admin): " APP_USERNAME
 while true; do
     read -sp "请为您的网盘应用设置一个登录密码 (输入时不可见): " APP_PASSWORD
@@ -51,10 +50,7 @@ while true; do
     echo
     if [ "$APP_PASSWORD" = "$APP_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi
 done
-
-# 新增：询问磁盘配额
 read -p "请输入您想分配给网盘的总容量 (单位: GB, 例如: 100): " DISK_QUOTA_GB
-
 echo -e "${GREEN}信息收集完毕！部署即将开始...${NC}"
 sleep 2
 
@@ -85,50 +81,55 @@ su - "$NEW_USERNAME" -c "cd $PROJECT_DIR && python3 -m venv venv && source venv/
 echo -e "${GREEN}Python环境配置完成！${NC}"
 APP_SECRET_KEY=$(openssl rand -hex 32)
 
-# 创建 app.py (已更新配额检查逻辑)
+# 创建 app.py (已更新为从环境变量读取配置，并增加分享功能)
 cat << EOF > "${PROJECT_DIR}/app.py"
 import os
+import json
+import uuid
 from flask import Flask, render_template, request, send_from_directory, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 
-# --- 配置 ---
-SECRET_KEY = '${APP_SECRET_KEY}'
-DRIVE_ROOT = '${DRIVE_ROOT_DIR}' 
-# 从环境变量读取磁盘配额（GB），如果不存在则默认为0（不限制）
+# --- 配置 (全部从环境变量读取) ---
+SECRET_KEY = os.environ.get('SECRET_KEY', 'a-default-secret-key-for-local-testing')
+DRIVE_ROOT = os.environ.get('DRIVE_ROOT', '/tmp/my_files')
 DISK_QUOTA_GB = float(os.environ.get('DISK_QUOTA_GB', 0))
+APP_USERNAME = os.environ.get('APP_USERNAME', 'admin')
+APP_PASSWORD = os.environ.get('APP_PASSWORD', 'password')
+SHARES_FILE = os.path.join(DRIVE_ROOT, '.shares.json')
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = SECRET_KEY
 app.config['DRIVE_ROOT'] = os.path.abspath(DRIVE_ROOT)
 os.makedirs(app.config['DRIVE_ROOT'], exist_ok=True)
+if not os.path.exists(SHARES_FILE):
+    with open(SHARES_FILE, 'w') as f: json.dump({}, f)
 
-# --- 辅助函数：计算目录大小 ---
+# --- 辅助函数 ---
 def get_directory_size(path):
-    total_size = 0
+    total = 0
     for dirpath, dirnames, filenames in os.walk(path):
         for f in filenames:
             fp = os.path.join(dirpath, f)
-            if not os.path.islink(fp):
-                total_size += os.path.getsize(fp)
-    return total_size
+            if not os.path.islink(fp): total += os.path.getsize(fp)
+    return total
 
 # --- 用户认证设置 ---
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login' 
+login_manager.login_view = 'login'
 class User(UserMixin):
     def __init__(self, id, username, password_hash):
-        self.id = id; self.username = username; self.password_hash = password_hash
-users_db = {"1": User("1", "${APP_USERNAME}", generate_password_hash("${APP_PASSWORD}"))}
+        self.id, self.username, self.password_hash = id, username, password_hash
+users_db = {"1": User("1", APP_USERNAME, generate_password_hash(APP_PASSWORD))}
 @login_manager.user_loader
 def load_user(user_id): return users_db.get(user_id)
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated: return redirect(url_for('files_view'))
     if request.method == 'POST':
-        username = request.form['username']; password = request.form['password']
+        username, password = request.form['username'], request.form['password']
         user = next((u for u in users_db.values() if u.username == username), None)
         if user and check_password_hash(user.password_hash, password):
             login_user(user); return redirect(url_for('files_view'))
@@ -138,53 +139,39 @@ def login():
 @login_required
 def logout(): logout_user(); return redirect(url_for('login'))
 
-# --- 文件操作视图 ---
+# --- 文件与分享路由 ---
 @app.route('/', defaults={'req_path': ''})
 @app.route('/<path:req_path>')
 @login_required
 def files_view(req_path):
-    base_dir = app.config['DRIVE_ROOT']; abs_path = os.path.join(base_dir, req_path)
+    base_dir, abs_path = app.config['DRIVE_ROOT'], os.path.join(app.config['DRIVE_ROOT'], req_path)
     if not os.path.abspath(abs_path).startswith(base_dir): return "非法路径", 400
     if not os.path.exists(abs_path): return "路径不存在", 404
     if os.path.isdir(abs_path):
         items = [{'name': item, 'is_dir': os.path.isdir(os.path.join(abs_path, item))} for item in os.listdir(abs_path)]
         return render_template('files.html', items=items, current_path=req_path)
     else: return send_from_directory(os.path.dirname(abs_path), os.path.basename(abs_path))
-
 @app.route('/upload', methods=['POST'])
 @login_required
 def upload_file():
-    path = request.form.get('path', '')
-    dest_path = os.path.join(app.config['DRIVE_ROOT'], path)
+    path = request.form.get('path', ''); dest_path = os.path.join(app.config['DRIVE_ROOT'], path)
     if not os.path.abspath(dest_path).startswith(app.config['DRIVE_ROOT']):
         flash('非法上传路径'); return redirect(url_for('files_view'))
     if 'file' not in request.files or request.files['file'].filename == '':
         flash('没有选择文件'); return redirect(url_for('files_view', req_path=path))
-    
     file = request.files['file']
-
-    # --- 配额检查逻辑 ---
     if DISK_QUOTA_GB > 0:
-        # 获取传入文件的大小
-        file.seek(0, os.SEEK_END)
-        incoming_file_size = file.tell()
-        file.seek(0) # 将指针移回文件开头
-        
+        file.seek(0, os.SEEK_END); incoming_file_size = file.tell(); file.seek(0)
         current_dir_size = get_directory_size(app.config['DRIVE_ROOT'])
-        quota_bytes = DISK_QUOTA_GB * 1024 * 1024 * 1024
-
-        if current_dir_size + incoming_file_size > quota_bytes:
-            flash(f"上传失败：网盘空间不足。总配额: {DISK_QUOTA_GB} GB")
-            return redirect(url_for('files_view', req_path=path))
-
+        if current_dir_size + incoming_file_size > DISK_QUOTA_GB * 1024**3:
+            flash(f"上传失败：网盘空间不足。总配额: {DISK_QUOTA_GB} GB"); return redirect(url_for('files_view', req_path=path))
     if file:
         filename = secure_filename(file.filename); file.save(os.path.join(dest_path, filename)); flash('文件上传成功')
     return redirect(url_for('files_view', req_path=path))
-
 @app.route('/create_folder', methods=['POST'])
 @login_required
 def create_folder():
-    path = request.form.get('path', ''); folder_name = request.form.get('folder_name', '')
+    path, folder_name = request.form.get('path', ''), request.form.get('folder_name', '')
     if not folder_name: flash("文件夹名称不能为空"); return redirect(url_for('files_view', req_path=path))
     new_folder_path = os.path.join(app.config['DRIVE_ROOT'], path, secure_filename(folder_name))
     if not os.path.abspath(new_folder_path).startswith(app.config['DRIVE_ROOT']):
@@ -194,25 +181,52 @@ def create_folder():
     except FileExistsError: flash(f"文件夹 '{folder_name}' 已存在")
     except Exception as e: flash(f"创建失败: {e}")
     return redirect(url_for('files_view', req_path=path))
+@app.route('/share/<path:req_path>')
+@login_required
+def create_share_link(req_path):
+    abs_path = os.path.join(app.config['DRIVE_ROOT'], req_path)
+    if not os.path.exists(abs_path) or os.path.isdir(abs_path):
+        flash("只能分享已存在的文件"); return redirect(url_for('files_view'))
+    with open(SHARES_FILE, 'r+') as f:
+        shares = json.load(f); token = uuid.uuid4().hex; shares[token] = req_path
+        f.seek(0); f.truncate(); json.dump(shares, f, indent=4)
+    share_link = url_for('public_download', token=token, _external=True)
+    flash(f"创建分享链接成功！\n公开链接: {share_link}"); return redirect(url_for('files_view', req_path=os.path.dirname(req_path)))
+@app.route('/public/<token>')
+def public_download(token):
+    try:
+        with open(SHARES_FILE, 'r') as f: shares = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError): return "分享服务不可用", 500
+    req_path = shares.get(token)
+    if not req_path: return "分享链接无效或已过期", 404
+    abs_path = os.path.join(app.config['DRIVE_ROOT'], req_path)
+    if not os.path.exists(abs_path): return "分享的文件不存在", 404
+    return send_from_directory(os.path.dirname(abs_path), os.path.basename(abs_path))
 EOF
 
-# 创建 wsgi.py 和 templates (内容与上一版相同)
+# 创建 wsgi.py
 cat << EOF > "${PROJECT_DIR}/wsgi.py"
 from app import app
 if __name__ == "__main__": app.run()
 EOF
+
+# 创建 templates 目录和文件
 mkdir -p "${PROJECT_DIR}/templates"
 cat << 'EOF' > "${PROJECT_DIR}/templates/login.html"
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><title>登录</title></head><body><main class="container"><article><h1 style="text-align: center;">登录到你的网盘</h1><form method="post"><input type="text" name="username" placeholder="用户名" required><input type="password" name="password" placeholder="密码" required><button type="submit">登录</button></form>{% with messages = get_flashed_messages() %}{% if messages %}{% for message in messages %}<p><small style="color: var(--pico-color-red-500);">{{ message }}</small></p>{% endfor %}{% endif %}{% endwith %}</article></main></body></html>
 EOF
+
+# files.html (已更新分享按钮)
 cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><title>我的网盘</title><style>progress { width: 100%; height: 8px; margin-top: 0.5rem; }</style></head><body><main class="container"><nav><ul><li><strong>当前路径: /{{ current_path }}</strong></li></ul><ul><li><a href="{{ url_for('logout') }}" role="button" class="secondary">登出</a></li></ul></nav>{% with messages = get_flashed_messages() %}{% if messages %}{% for message in messages %}<p><small style="color: var(--pico-color-red-500);">{{ message }}</small></p>{% else %}<p><small style="color: var(--pico-color-green-500);">{{ message }}</small></p>{% endfor %}{% endif %}{% endwith %}<hr><h3>文件列表</h3><ul>{% if current_path %}<li><a href="{{ url_for('files_view', req_path=current_path.rsplit('/', 1)[0] if '/' in current_path else '') }}">.. (返回上级)</a></li>{% endif %}{% for item in items %}<li>{% if item.is_dir %}📁 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}"><strong>{{ item.name }}</strong></a>{% else %}📄 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}">{{ item.name }}</a>{% endif %}</li>{% endfor %}</ul><hr><div class="grid"><article><h6>上传文件到当前目录</h6><form id="upload-form" method="post" action="{{ url_for('upload_file') }}" enctype="multipart/form-data"><input type="hidden" name="path" value="{{ current_path }}"><input type="file" name="file" required><progress id="upload-progress" value="0" max="100" style="display: none;"></progress><button type="submit">上传</button></form></article><article><h6>创建新文件夹</h6><form method="post" action="{{ url_for('create_folder') }}"><input type="hidden" name="path" value="{{ current_path }}"><input type="text" name="folder_name" placeholder="新文件夹名称" required><button type="submit">创建</button></form></article></div></main><script>const form=document.getElementById('upload-form'),progressBar=document.getElementById('upload-progress');form.addEventListener('submit',function(e){e.preventDefault(),progressBar.style.display='block',progressBar.value=0;const t=new FormData(form),o=new XMLHttpRequest;o.upload.addEventListener('progress',function(e){if(e.lengthComputable){const t=Math.round(e.loaded/e.total*100);progressBar.value=t}}),o.addEventListener('load',function(){progressBar.value=100;if(o.status>=200&&o.status<300){alert('上传成功！')}else{alert('上传失败：'+o.responseText||'服务器错误')};window.location.reload()}),o.addEventListener('error',function(){alert('上传失败！'),progressBar.style.display='none'}),o.open('POST',form.action),o.send(t)});</script></body></html>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><title>我的网盘</title><style>progress{width:100%;height:8px;margin-top:.5rem}.button.outline.small-link{padding:2px 8px;font-size:.75rem;margin-left:1rem}</style></head><body><main class="container"><nav><ul><li><strong>当前路径: /{{ current_path }}</strong></li></ul><ul><li><a href="{{ url_for('logout') }}" role="button" class="secondary">登出</a></li></ul></nav>{% with messages=get_flashed_messages() %}{% if messages %}{% for message in messages %}<article><p style="white-space: pre-wrap;">{{ message }}</p></article>{% endfor %}{% endif %}{% endwith %}<hr><h3>文件列表</h3><ul>{% if current_path %}<li><a href="{{ url_for('files_view', req_path=current_path.rsplit('/', 1)[0] if '/' in current_path else '') }}">.. (返回上级)</a></li>{% endif %}{% for item in items %}<li>{% if item.is_dir %}📁 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}"><strong>{{ item.name }}</strong></a>{% else %}📄 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}">{{ item.name }}</a><a href="{{ url_for('create_share_link', req_path=(current_path + '/' + item.name if current_path else item.name)) }}" role="button" class="contrast outline small-link">分享</a>{% endif %}</li>{% endfor %}</ul><hr><div class="grid"><article><h6>上传文件到当前目录</h6><form id="upload-form" method=post action="{{url_for('upload_file')}}" enctype=multipart/form-data><input type=hidden name=path value="{{current_path}}"><input type=file name=file required><progress id="upload-progress" value="0" max="100" style="display:none"></progress><button type=submit>上传</button></form></article><article><h6>创建新文件夹</h6><form method=post action="{{url_for('create_folder')}}"><input type=hidden name=path value="{{current_path}}"><input type=text name=folder_name placeholder="新文件夹名称" required><button type=submit>创建</button></form></article></div></main><script>const form=document.getElementById('upload-form'),progressBar=document.getElementById('upload-progress');form.addEventListener('submit',function(e){e.preventDefault(),progressBar.style.display='block',progressBar.value=0;const t=new FormData(form),o=new XMLHttpRequest;o.upload.addEventListener('progress',function(e){if(e.lengthComputable){const t=Math.round(e.loaded/e.total*100);progressBar.value=t}}),o.addEventListener('load',function(){progressBar.value=100;if(o.status>=200&&o.status<300)alert('上传成功！');else alert('上传失败：'+o.responseText||'服务器错误');window.location.reload()}),o.addEventListener('error',function(){alert('上传失败！'),progressBar.style.display='none'}),o.open('POST',form.action),o.send(t)});</script></body></html>
 EOF
+
 chown -R "$NEW_USERNAME:$NEW_USERNAME" "$PROJECT_DIR"
 echo -e "${GREEN}项目文件创建完成！${NC}"
 
 # --- 5. 配置Gunicorn服务 ---
 echo -e "\n${YELLOW}>>> 步骤 4/8: 配置Gunicorn后台服务...${NC}"
+# 更新：通过环境变量传递所有配置
 cat << EOF > /etc/systemd/system/my_cloud_drive.service
 [Unit]
 Description=Gunicorn instance to serve my_cloud_drive
@@ -221,7 +235,12 @@ After=network.target
 User=${NEW_USERNAME}
 Group=www-data
 WorkingDirectory=${PROJECT_DIR}
+Environment="PATH=${PROJECT_DIR}/venv/bin"
+Environment="SECRET_KEY=${APP_SECRET_KEY}"
+Environment="DRIVE_ROOT=${DRIVE_ROOT_DIR}"
 Environment="DISK_QUOTA_GB=${DISK_QUOTA_GB}"
+Environment="APP_USERNAME=${APP_USERNAME}"
+Environment="APP_PASSWORD=${APP_PASSWORD}"
 ExecStart=${PROJECT_DIR}/venv/bin/gunicorn --workers 3 --timeout 1800 --bind unix:${PROJECT_DIR}/my_cloud_drive.sock -m 007 wsgi:app
 [Install]
 WantedBy=multi-user.target
