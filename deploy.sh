@@ -3,9 +3,9 @@
 # ==============================================================================
 #           一键部署 Python + Flask + Gunicorn + Nginx 个人网盘项目
 #
-#                         最终毕业版 (v-final)
+#                    V3.0 - 创世终焉版 (功能完整)
 #
-#                功能: 全功能后台 + 专业UI布局 + 现代化交互
+# 功能: 包含所有功能，包括增、删、查、分享、配额、美化UI及自动HTTPS。
 #
 # ==============================================================================
 
@@ -23,17 +23,16 @@ fi
 
 clear
 echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}  欢迎使用个人网盘一键部署脚本！ (毕业版)         ${NC}"
+echo -e "${GREEN}  欢迎使用个人网盘一键部署脚本！ (V3.0 - 最终版)   ${NC}"
 echo -e "${GREEN}  本脚本将引导您完成所有必要的设置。            ${NC}"
 echo -e "${GREEN}=====================================================${NC}"
 echo
 
 # --- 1. 收集用户输入 ---
-# [此处省略了所有提问环节的代码，与上一版完全相同]
 echo -e "${YELLOW}第一步：收集必要信息...${NC}"
 read -p "请输入您想创建的日常管理用户名 (例如: auser): " NEW_USERNAME
 while true; do read -sp "请输入该用户的登录密码 (输入时不可见): " NEW_PASSWORD; echo; read -sp "请再次输入密码进行确认: " NEW_PASSWORD_CONFIRM; echo; if [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi; done
-read -p "请输入您的域名 (如果想启用HTTPS) 或服务器公网IP地址: " DOMAIN_OR_IP
+read -p "请输入您的域名 (如果想启用HTTPS，必须使用域名): " DOMAIN_OR_IP
 read -p "请输入您的邮箱地址 (用于申请SSL证书，例如: user@example.com): " LETSENCRYPT_EMAIL
 read -p "请为您的网盘应用设置一个登录用户名 (例如: admin): " APP_USERNAME
 while true; do read -sp "请为您的网盘应用设置一个登录密码 (输入时不可见): " APP_PASSWORD; echo; read -sp "请再次输入密码进行确认: " APP_PASSWORD_CONFIRM; echo; if [ "$APP_PASSWORD" = "$APP_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi; done
@@ -68,11 +67,12 @@ su - "$NEW_USERNAME" -c "cd $PROJECT_DIR && python3 -m venv venv && source venv/
 echo -e "${GREEN}Python环境配置完成！${NC}"
 APP_SECRET_KEY=$(openssl rand -hex 32)
 
-# 创建 app.py (已更新为支持新的UI交互)
+# 创建 app.py (已增加删除API)
 cat << EOF > "${PROJECT_DIR}/app.py"
 import os
 import json
 import uuid
+import shutil
 from flask import Flask, render_template, request, send_from_directory, redirect, url_for, flash, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -201,6 +201,28 @@ def api_create_share_link():
         f.seek(0); f.truncate(); json.dump(shares, f, indent=4)
     share_link = url_for('public_download', token=token, _external=True)
     return jsonify({'share_url': share_link})
+@app.route('/api/delete', methods=['POST'])
+@login_required
+def api_delete_item():
+    data = request.get_json()
+    if not data or 'path' not in data:
+        return jsonify({'success': False, 'message': '无效的请求'}), 400
+    req_path = data['path']
+    base_dir = app.config['DRIVE_ROOT']
+    abs_path = os.path.join(base_dir, req_path)
+    if not os.path.abspath(abs_path).startswith(base_dir) or abs_path == base_dir:
+        return jsonify({'success': False, 'message': '非法操作：禁止删除根目录或越权删除'}), 403
+    try:
+        if os.path.isfile(abs_path):
+            os.remove(abs_path)
+            return jsonify({'success': True, 'message': '文件已删除'})
+        elif os.path.isdir(abs_path):
+            shutil.rmtree(abs_path)
+            return jsonify({'success': True, 'message': '文件夹已删除'})
+        else:
+            return jsonify({'success': False, 'message': '目标不存在'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'删除时发生错误: {e}'}), 500
 
 # --- 公开访问路由 ---
 @app.route('/public/<token>')
@@ -225,23 +247,17 @@ cat << 'EOF' > "${PROJECT_DIR}/templates/login.html"
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><title>登录</title></head><body><main class="container"><article><h1 style="text-align: center;">登录到你的网盘</h1><form method="post"><input type="text" name="username" placeholder="用户名" required><input type="password" name="password" placeholder="密码" required><button type="submit">登录</button></form>{% with messages = get_flashed_messages() %}{% if messages %}{% for message in messages %}<p><small style="color: var(--pico-color-red-500);">{{ message }}</small></p>{% endfor %}{% endif %}{% endwith %}</article></main></body></html>
 EOF
 cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
-<!doctype html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"><title>我的网盘 - {{ current_user.username }}</title><style>:root{--pico-card-padding:1rem;--pico-block-spacing-vertical:1rem}body{background-color:var(--pico-secondary-background)}.share-icon{cursor:pointer;font-size:1rem;margin-left:1rem;color:var(--pico-primary-hover);transition:transform .2s ease-in-out}.share-icon:hover{transform:scale(1.2)}.file-list li{display:flex;align-items:center;margin-bottom:.5rem;padding:.25rem 0;border-bottom:1px solid var(--pico-card-border-color)}.file-list li:last-child{border-bottom:none}.file-list a{flex-grow:1;text-decoration:none}.file-list a:hover{text-decoration:underline}#create-folder-form input,#upload-form input{margin-bottom:.5rem}.header-card{text-align:center;padding:1.5rem}.capacity-text{margin-top:0;font-size:.9rem;color:var(--pico-secondary-foreground)}.capacity-bar{height:10px;margin-bottom:0}nav{padding:0}main>.nav-actions{margin-top:1rem;display:flex;justify-content:center;gap:1rem}</style></head><body>
+<!doctype html><html lang="zh-CN" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"><title>我的网盘 - {{ current_user.username }}</title><style>:root{--pico-card-padding:1rem;--pico-block-spacing-vertical:1rem}body{background-color:var(--pico-secondary-background)}.action-icon{cursor:pointer;font-size:1rem;margin-left:1rem;transition:transform .2s ease-in-out}.action-icon:hover{transform:scale(1.2)}.share-icon{color:var(--pico-primary-hover)}.delete-icon{color:var(--pico-color-red-500)}.file-list li{display:flex;align-items:center;margin-bottom:.5rem;padding:.25rem 0;border-bottom:1px solid var(--pico-card-border-color)}.file-list li:last-child{border-bottom:none}.file-list a{flex-grow:1;text-decoration:none}.file-list a:hover{text-decoration:underline}#create-folder-form input,#upload-form input{margin-bottom:.5rem}.header-card{text-align:center;padding:1.5rem}.capacity-text{margin-top:0;font-size:.9rem;color:var(--pico-secondary-foreground)}.capacity-bar{height:10px;margin-bottom:0}nav{padding:0}main>.nav-actions{margin-top:1rem;display:flex;justify-content:center;gap:1rem}</style></head><body>
 <header class="container"><nav><ul><li><a href="{{url_for('files_view')}}" style="font-weight:bold;font-size:1.2rem;text-decoration:none">我的云盘</a></li></ul><ul><li><span>欢迎, {{current_user.username}}</span><a href="{{url_for('logout')}}" role="button" class="secondary outline" style="margin-left:1rem;width:auto">登出</a></li></ul></nav></header>
 <main class="container">
 <div class="grid"><article class="header-card"><i class="fa-solid fa-user-circle" style="font-size:3rem;color:var(--pico-primary)"></i><hgroup><h4 style="margin-bottom:0">{{current_user.username}}</h4><p>管理员</p></hgroup></article><article class="header-card">{% if quota_gb > 0 %}<hgroup><h5 style="margin-bottom:0.5rem">已用容量</h5><p class="capacity-text">{{used_space_human}} / {{quota_human}}</p></hgroup><progress class="capacity-bar" value="{{usage_percent}}" max="100" title="{{usage_percent|round(2)}}%"></progress>{% else %}<hgroup><h5>磁盘空间</h5><p>未设置配额</p></hgroup>{% endif %}</article></div>
 <article><nav><ul><li><strong>当前路径: /{{current_path}}</strong></li></ul><ul><li><a href="#" id="create-folder-link" style="text-decoration:none" title="创建新文件夹"><i class="fa-solid fa-folder-plus"></i> 创建文件夹</a></li></ul></nav><hr style="margin-top:0">
-<ul class="file-list">{% if current_path %}<li><a href="{{ url_for('files_view', req_path=current_path.rsplit('/', 1)[0] if '/' in current_path else '') }}">.. (返回上级)</a></li>{% endif %}{% for item in items %}<li>{% if item.is_dir %}<span>📁 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}"><strong>{{ item.name }}</strong></a></span>{% else %}<span>📄 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}">{{ item.name }}</a></span><i class="fa-solid fa-share-nodes share-icon" onclick="getAndCopyShareLink('{{ current_path + '/' + item.name if current_path else item.name }}')" title="创建并复制分享链接"></i>{% endif %}</li>{% else %}<li><small>当前目录为空</small></li>{% endfor %}</ul>
+<ul class="file-list">{% if current_path %}<li><a href="{{ url_for('files_view', req_path=current_path.rsplit('/', 1)[0] if '/' in current_path else '') }}">.. (返回上级)</a></li>{% endif %}{% for item in items %}<li>{% if item.is_dir %}<span>📁 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}"><strong>{{ item.name }}</strong></a></span><i class="fa-solid fa-trash-can action-icon delete-icon" onclick="deleteItem('{{ current_path + '/' + item.name if current_path else item.name }}', '{{ item.name }}')" title="删除文件夹"></i>{% else %}<span>📄 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}">{{ item.name }}</a></span><i class="fa-solid fa-share-nodes action-icon share-icon" onclick="getAndCopyShareLink('{{ current_path + '/' + item.name if current_path else item.name }}')" title="创建并复制分享链接"></i><i class="fa-solid fa-trash-can action-icon delete-icon" onclick="deleteItem('{{ current_path + '/' + item.name if current_path else item.name }}', '{{ item.name }}')" title="删除文件"></i>{% endif %}</li>{% else %}<li><small>当前目录为空</small></li>{% endfor %}</ul>
 </article>
 <div class="nav-actions"><button id="upload-btn">上传文件</button></div>
 
-<dialog id="create-folder-modal"><article>
-<header><a href="#close" aria-label="Close" class="close"></a><strong>创建新文件夹</strong></header>
-<form id="create-folder-form"><input type="hidden" name="path" value="{{current_path}}"><input type="text" name="folder_name" placeholder="新文件夹名称" required><footer style="display:flex;justify-content:flex-end"><button type="submit" class="primary">确认创建</button></footer></form>
-</article></dialog>
-<dialog id="upload-modal"><article>
-<header><a href="#close" aria-label="Close" class="close"></a><strong>上传文件到当前目录</strong></header>
-<form id="upload-form"><input type="hidden" name="path" value="{{current_path}}"><input type="file" name="file" required><progress id="upload-progress" value="0" max="100" style="display:none"></progress><footer><button type="submit" class="primary">确认上传</button></footer></form>
-</article></dialog>
+<dialog id="create-folder-modal"><article><header><a href="#close" aria-label="Close" class="close"></a><strong>创建新文件夹</strong></header><form id="create-folder-form"><input type="hidden" name="path" value="{{current_path}}"><input type="text" name="folder_name" placeholder="新文件夹名称" required><footer style="display:flex;justify-content:flex-end"><button type="submit" class="primary">确认创建</button></footer></form></article></dialog>
+<dialog id="upload-modal"><article><header><a href="#close" aria-label="Close" class="close"></a><strong>上传文件到当前目录</strong></header><form id="upload-form"><input type="hidden" name="path" value="{{current_path}}"><input type="file" name="file" required><progress id="upload-progress" value="0" max="100" style="display:none"></progress><footer><button type="submit" class="primary">确认上传</button></footer></form></article></dialog>
 </main>
 <script>
 // Modal handling
@@ -258,14 +274,16 @@ const uploadForm=document.getElementById('upload-form');const progressBar=docume
 
 // Share link
 function getAndCopyShareLink(filePath){fetch("{{url_for('api_create_share_link')}}",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:filePath})}).then(response=>{if(!response.ok)throw new Error('服务器响应错误');return response.json()}).then(data=>{if(data.share_url){if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(data.share_url).then(()=>{alert('分享链接已复制到剪贴板！\n'+data.share_url)}).catch(err=>{prompt('自动复制失败，请手动复制链接:',data.share_url)})}else{prompt('请手动复制以下分享链接 (当前为HTTP非安全连接):',data.share_url)}}else{throw new Error(data.error||'无法获取分享链接')}}).catch(error=>{console.error('获取分享链接失败:',error);alert('创建分享链接失败: '+error.message)})}
+
+// Delete item
+function deleteItem(itemPath,itemName){if(confirm(`你确定要永久删除 '${itemName}' 吗？这个操作无法撤销！`)){fetch("{{url_for('api_delete_item')}}",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:itemPath})}).then(response=>response.json()).then(data=>{alert(data.message);if(data.success){window.location.reload()}}).catch(error=>{console.error('删除时发生错误:',error);alert('删除失败: '+error.message)})}}
 </script></body></html>
 EOF
 
 chown -R "$NEW_USERNAME:$NEW_USERNAME" "$PROJECT_DIR"
 echo -e "${GREEN}项目文件创建完成！${NC}"
 
-# --- 5. 配置Gunicorn服务 (内容不变) ---
-# [ ... ]
+# --- 5. 配置Gunicorn服务 ---
 echo -e "\n${YELLOW}>>> 步骤 4/9: 配置Gunicorn后台服务...${NC}"
 cat << EOF > /etc/systemd/system/my_cloud_drive.service
 [Unit]
@@ -287,9 +305,7 @@ WantedBy=multi-user.target
 EOF
 echo -e "${GREEN}Gunicorn服务配置完成！${NC}"
 
-
-# --- 6. 配置Nginx服务 (内容不变) ---
-# [ ... ]
+# --- 6. 配置Nginx服务 ---
 echo -e "\n${YELLOW}>>> 步骤 5/9: 配置Nginx反向代理...${NC}"
 cat << EOF > /etc/nginx/sites-available/my_cloud_drive
 server {
@@ -306,16 +322,14 @@ ln -s /etc/nginx/sites-available/my_cloud_drive /etc/nginx/sites-enabled/ > /dev
 rm -f /etc/nginx/sites-enabled/default
 echo -e "${GREEN}Nginx配置完成！${NC}"
 
-# --- 7. 配置防火墙 (内容不变) ---
-# [ ... ]
+# --- 7. 配置防火墙 ---
 echo -e "\n${YELLOW}>>> 步骤 6/9: 配置iptables防火墙...${NC}"
 iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT > /dev/null 2>&1
 iptables -I INPUT 2 -p tcp --dport 443 -j ACCEPT > /dev/null 2>&1
 iptables-save > /etc/iptables/rules.v4
 echo -e "${GREEN}防火墙已放行80和443端口！${NC}"
 
-# --- 8. 开启BBR并启动所有服务 (内容不变) ---
-# [ ... ]
+# --- 8. 开启BBR并启动所有服务 ---
 echo -e "\n${YELLOW}>>> 步骤 7/9: 开启BBR并启动服务...${NC}"
 if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
     cat << EOF >> /etc/sysctl.conf
@@ -335,8 +349,7 @@ else
 fi
 echo -e "${GREEN}HTTP服务已启动！${NC}"
 
-# --- 9. 自动配置HTTPS (内容不变) ---
-# [ ... ]
+# --- 9. 自动配置HTTPS ---
 echo -e "\n${YELLOW}>>> 步骤 8/9: 尝试自动配置HTTPS...${NC}"
 FINAL_URL="http://${DOMAIN_OR_IP}"
 if [[ ! "$DOMAIN_OR_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
@@ -344,7 +357,7 @@ if [[ ! "$DOMAIN_OR_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; 
     certbot --nginx --non-interactive --agree-tos --redirect --email "${LETSENCRYPT_EMAIL}" -d "${DOMAIN_OR_IP}"
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}HTTPS配置成功！${NC}"
-        FINAL_URL="httpshttps://${DOMAIN_OR_IP}"
+        FINAL_URL="https://${DOMAIN_OR_IP}"
     else
         echo -e "${RED}SSL证书申请失败。请检查你的域名是否正确解析到了该服务器IP。${NC}"
         echo -e "${YELLOW}网站仍然可以通过HTTP访问。${NC}"
@@ -354,7 +367,6 @@ else
 fi
 
 # --- 部署完成 ---
-# [ ... ]
 echo -e "\n${YELLOW}>>> 步骤 9/9: 部署完成！${NC}"
 echo
 echo -e "${GREEN}===================================================================${NC}"
