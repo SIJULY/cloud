@@ -1,10 +1,12 @@
 #!/bin/bash
 
 # ==============================================================================
-#           一键部署 Python + Flask + Gunicorn + Nginx 个人网盘项目 (V2.8 - 最终珍藏版)
+#           一键部署 Python + Flask + Gunicorn + Nginx 个人网盘项目
 #
-# 最终修复: 1. 解决了中文等非英文文件夹无法创建的致命BUG。
-#         2. 修复了文件列表未正确过滤隐藏文件的问题。
+#                       V3.2 - 开源全功能HTTPS最终版
+#
+# 功能: 完整的用户、文件、文件夹管理，上传进度条，超时设置，磁盘配额，
+#       图标分享+点击复制功能，以及全自动HTTPS配置。
 #
 # ==============================================================================
 
@@ -21,37 +23,26 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 clear
-echo -e "${GREEN}=====================================================${NC}"
-echo -e "${GREEN}  欢迎使用个人网盘一键部署脚本！ (V2.8 - 最终珍藏版) ${NC}"
-echo -e "${GREEN}  本脚本将引导您完成所有必要的设置。            ${NC}"
-echo -e "${GREEN}=====================================================${NC}"
+echo -e "${GREEN}======================================================${NC}"
+echo -e "${GREEN}  欢迎使用个人网盘一键部署脚本！ (V3.2 - 最终版)  ${NC}"
+echo -e "${GREEN}  本脚本将引导您完成所有必要的设置。             ${NC}"
+echo -e "${GREEN}======================================================${NC}"
 echo
 
 # --- 1. 收集用户输入 ---
 echo -e "${YELLOW}第一步：收集必要信息...${NC}"
 read -p "请输入您想创建的日常管理用户名 (例如: auser): " NEW_USERNAME
-while true; do
-    read -sp "请输入该用户的登录密码 (输入时不可见): " NEW_PASSWORD
-    echo
-    read -sp "请再次输入密码进行确认: " NEW_PASSWORD_CONFIRM
-    echo
-    if [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi
-done
-read -p "请输入您的域名或服务器公网IP地址: " DOMAIN_OR_IP
+while true; do read -sp "请输入该用户的登录密码 (输入时不可见): " NEW_PASSWORD; echo; read -sp "请再次输入密码进行确认: " NEW_PASSWORD_CONFIRM; echo; if [ "$NEW_PASSWORD" = "$NEW_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi; done
+read -p "请输入您的域名 (如果想启用HTTPS，必须使用域名): " DOMAIN_OR_IP
+read -p "请输入您的邮箱地址 (用于申请SSL证书，例如: user@example.com): " LETSENCRYPT_EMAIL
 read -p "请为您的网盘应用设置一个登录用户名 (例如: admin): " APP_USERNAME
-while true; do
-    read -sp "请为您的网盘应用设置一个登录密码 (输入时不可见): " APP_PASSWORD
-    echo
-    read -sp "请再次输入密码进行确认: " APP_PASSWORD_CONFIRM
-    echo
-    if [ "$APP_PASSWORD" = "$APP_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi
-done
+while true; do read -sp "请为您的网盘应用设置一个登录密码 (输入时不可见): " APP_PASSWORD; echo; read -sp "请再次输入密码进行确认: " APP_PASSWORD_CONFIRM; echo; if [ "$APP_PASSWORD" = "$APP_PASSWORD_CONFIRM" ]; then break; else echo -e "${RED}两次输入的密码不匹配，请重试。${NC}"; fi; done
 read -p "请输入您想分配给网盘的总容量 (单位: GB, 例如: 100): " DISK_QUOTA_GB
 echo -e "${GREEN}信息收集完毕！部署即将开始...${NC}"
 sleep 2
 
 # --- 2. 系统初始化与用户创建 ---
-echo -e "\n${YELLOW}>>> 步骤 1/8: 更新系统并创建用户 ${NEW_USERNAME}...${NC}"
+echo -e "\n${YELLOW}>>> 步骤 1/9: 更新系统并创建用户 ${NEW_USERNAME}...${NC}"
 apt-get update && apt-get upgrade -y > /dev/null 2>&1
 adduser --disabled-password --gecos "" "$NEW_USERNAME" > /dev/null 2>&1
 echo "$NEW_USERNAME:$NEW_PASSWORD" | chpasswd
@@ -59,14 +50,14 @@ usermod -aG sudo "$NEW_USERNAME"
 echo -e "${GREEN}用户 ${NEW_USERNAME} 创建成功！${NC}"
 
 # --- 3. 安装依赖软件 ---
-echo -e "\n${YELLOW}>>> 步骤 2/8: 安装 Nginx, Python, venv 等依赖...${NC}"
+echo -e "\n${YELLOW}>>> 步骤 2/9: 安装 Nginx, Python, Certbot 等依赖...${NC}"
 echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
 echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
-apt-get install -y python3-pip python3-dev python3-venv nginx iptables-persistent > /dev/null 2>&1
+apt-get install -y python3-pip python3-dev python3-venv nginx iptables-persistent certbot python3-certbot-nginx > /dev/null 2>&1
 echo -e "${GREEN}依赖软件安装完成！${NC}"
 
 # --- 4. 创建项目结构和文件 ---
-echo -e "\n${YELLOW}>>> 步骤 3/8: 创建项目文件和Python虚拟环境...${NC}"
+echo -e "\n${YELLOW}>>> 步骤 3/9: 创建项目文件和Python虚拟环境...${NC}"
 PROJECT_DIR="/var/www/my_cloud_drive"
 DRIVE_ROOT_DIR="/home/${NEW_USERNAME}/my_files"
 mkdir -p "$PROJECT_DIR"
@@ -149,7 +140,6 @@ def files_view(req_path):
         items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
         return render_template('files.html', items=items, current_path=req_path)
     else: return send_from_directory(os.path.dirname(abs_path), os.path.basename(abs_path))
-
 @app.route('/upload', methods=['POST'])
 @login_required
 def upload_file():
@@ -165,7 +155,6 @@ def upload_file():
     if file:
         filename = secure_filename(file.filename); file.save(os.path.join(dest_path, filename))
     return "上传成功", 200
-
 @app.route('/create_folder', methods=['POST'])
 @login_required
 def create_folder():
@@ -226,27 +215,7 @@ EOF
 cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"><title>我的网盘</title><style>progress{width:100%;height:8px;margin-top:.5rem}.share-icon{cursor:pointer;font-size:1rem;margin-left:1rem;color:var(--pico-primary);transition:transform .2s ease-in-out}.share-icon:hover{transform:scale(1.2)}</style></head><body><main class="container"><nav><ul><li><strong>当前路径: /{{ current_path }}</strong></li></ul><ul><li><a href="{{ url_for('logout') }}" role="button" class="secondary">登出</a></li></ul></nav>{% with messages=get_flashed_messages() %}{% if messages %}{% for message in messages %}<article><p style="white-space:pre-wrap">{{ message }}</p></article>{% endfor %}{% endif %}{% endwith %}<hr><h3>文件列表</h3><ul>{% if current_path %}<li><a href="{{ url_for('files_view', req_path=current_path.rsplit('/', 1)[0] if '/' in current_path else '') }}">.. (返回上级)</a></li>{% endif %}{% for item in items %}<li>{% if item.is_dir %}📁 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}"><strong>{{ item.name }}</strong></a>{% else %}📄 <a href="{{ url_for('files_view', req_path=current_path + '/' + item.name if current_path else item.name) }}">{{ item.name }}</a><i class="fa-solid fa-share-nodes share-icon" onclick="getAndCopyShareLink('{{ current_path + '/' + item.name if current_path else item.name }}')" title="创建并复制分享链接"></i>{% endif %}</li>{% endfor %}</ul><hr><div class="grid"><article><h6>上传文件到当前目录</h6><form id="upload-form"><input type=hidden name=path value="{{current_path}}"><input type=file name=file required><progress id="upload-progress" value="0" max="100" style="display:none"></progress><button type=submit>上传</button></form></article><article><h6>创建新文件夹</h6><form method=post action="{{url_for('create_folder')}}"><input type=hidden name=path value="{{current_path}}"><input type=text name=folder_name placeholder="新文件夹名称" required><button type=submit>创建</button></form></article></div></main><script>
 const uploadForm=document.getElementById('upload-form');const progressBar=document.getElementById('upload-progress');uploadForm.addEventListener('submit',function(e){e.preventDefault();progressBar.style.display='block';progressBar.value=0;const formData=new FormData(uploadForm);const xhr=new XMLHttpRequest;xhr.upload.addEventListener('progress',function(e){if(e.lengthComputable){const t=Math.round(e.loaded/e.total*100);progressBar.value=t}});xhr.addEventListener('load',function(){progressBar.value=100;if(xhr.status>=200&&xhr.status<300){alert('上传成功！');window.location.reload()}else{alert('上传失败：'+xhr.responseText||'服务器错误')}});xhr.addEventListener('error',function(){alert('上传失败！'),progressBar.style.display='none'});xhr.open('POST',"{{url_for('upload_file')}}");xhr.send(formData)});
-function getAndCopyShareLink(filePath){
-    fetch("{{url_for('api_create_share_link')}}",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:filePath})})
-    .then(response => { if (!response.ok) { throw new Error('服务器响应错误'); } return response.json(); })
-    .then(data => {
-        if (data.share_url) {
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(data.share_url).then(() => {
-                    alert('分享链接已复制到剪贴板！\n' + data.share_url);
-                }).catch(err => {
-                    prompt('自动复制失败，请手动复制链接:', data.share_url);
-                });
-            } else {
-                prompt('请手动复制以下分享链接 (当前为HTTP非安全连接):', data.share_url);
-            }
-        } else { throw new Error(data.error || '无法获取分享链接'); }
-    })
-    .catch(error => {
-        console.error('获取分享链接失败:', error);
-        alert('创建分享链接失败: ' + error.message);
-    });
-}
+function getAndCopyShareLink(filePath){fetch("{{url_for('api_create_share_link')}}",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:filePath})}).then(response=>{if(!response.ok)throw new Error('服务器响应错误');return response.json()}).then(data=>{if(data.share_url){if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(data.share_url).then(()=>{alert('分享链接已复制到剪贴板！\n'+data.share_url)}).catch(err=>{prompt('自动复制失败，请手动复制链接:',data.share_url)})}else{prompt('请手动复制以下分享链接 (当前为HTTP非安全连接):',data.share_url)}}else{throw new Error(data.error||'无法获取分享链接')}}).catch(error=>{console.error('获取分享链接失败:',error);alert('创建分享链接失败: '+error.message)})}
 </script></body></html>
 EOF
 
@@ -254,7 +223,7 @@ chown -R "$NEW_USERNAME:$NEW_USERNAME" "$PROJECT_DIR"
 echo -e "${GREEN}项目文件创建完成！${NC}"
 
 # --- 5. 配置Gunicorn服务 ---
-echo -e "\n${YELLOW}>>> 步骤 4/8: 配置Gunicorn后台服务...${NC}"
+echo -e "\n${YELLOW}>>> 步骤 4/9: 配置Gunicorn后台服务...${NC}"
 cat << EOF > /etc/systemd/system/my_cloud_drive.service
 [Unit]
 Description=Gunicorn instance to serve my_cloud_drive
@@ -276,7 +245,7 @@ EOF
 echo -e "${GREEN}Gunicorn服务配置完成！${NC}"
 
 # --- 6. 配置Nginx服务 ---
-echo -e "\n${YELLOW}>>> 步骤 5/8: 配置Nginx反向代理...${NC}"
+echo -e "\n${YELLOW}>>> 步骤 5/9: 配置Nginx反向代理...${NC}"
 cat << EOF > /etc/nginx/sites-available/my_cloud_drive
 server {
     listen 80;
@@ -293,40 +262,51 @@ rm -f /etc/nginx/sites-enabled/default
 echo -e "${GREEN}Nginx配置完成！${NC}"
 
 # --- 7. 配置防火墙 ---
-echo -e "\n${YELLOW}>>> 步骤 6/8: 配置iptables防火墙...${NC}"
+echo -e "\n${YELLOW}>>> 步骤 6/9: 配置iptables防火墙...${NC}"
 iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT > /dev/null 2>&1
+iptables -I INPUT 2 -p tcp --dport 443 -j ACCEPT > /dev/null 2>&1
 iptables-save > /etc/iptables/rules.v4
-echo -e "${GREEN}防火墙已放行80端口！${NC}"
+echo -e "${GREEN}防火墙已放行80和443端口！${NC}"
 
-# --- 8. 开启BBR并启动所有服务 ---
-echo -e "\n${YELLOW}>>> 步骤 7/8: 开启BBR并启动服务...${NC}"
-# 避免重复添加BBR配置
-if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
-    cat << EOF >> /etc/sysctl.conf
-net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr
-EOF
-fi
-sysctl -p > /dev/null 2>&1
+# --- 8. 启动基础服务 ---
+echo -e "\n${YELLOW}>>> 步骤 7/9: 启动HTTP基础服务...${NC}"
 systemctl daemon-reload
 systemctl start my_cloud_drive
 systemctl enable my_cloud_drive > /dev/null 2>&1
 nginx -t
 if [ $? -eq 0 ]; then
     systemctl restart nginx
-    echo -e "${GREEN}所有服务已启动！${NC}"
 else
-    echo -e "${RED}Nginx配置测试失败，请检查 /etc/nginx/sites-available/my_cloud_drive 文件。${NC}"
-    exit 1
+    echo -e "${RED}Nginx配置测试失败，请检查。${NC}"; exit 1;
+fi
+echo -e "${GREEN}HTTP服务已启动！${NC}"
+
+# --- 9. 自动配置HTTPS ---
+echo -e "\n${YELLOW}>>> 步骤 8/9: 尝试自动配置HTTPS...${NC}"
+FINAL_URL="http://${DOMAIN_OR_IP}"
+if [[ ! "$DOMAIN_OR_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    echo -e "${YELLOW}检测到输入为域名，开始申请SSL证书...${NC}"
+    certbot --nginx --non-interactive --agree-tos --redirect \
+    --email "${LETSENCRYPT_EMAIL}" \
+    -d "${DOMAIN_OR_IP}"
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}HTTPS配置成功！${NC}"
+        FINAL_URL="https://${DOMAIN_OR_IP}"
+    else
+        echo -e "${RED}SSL证书申请失败。请检查你的域名是否正确解析到了该服务器IP。${NC}"
+        echo -e "${YELLOW}网站仍然可以通过HTTP访问。${NC}"
+    fi
+else
+    echo -e "${YELLOW}检测到输入为IP地址，跳过HTTPS配置。${NC}"
 fi
 
 # --- 部署完成 ---
-echo -e "\n${YELLOW}>>> 步骤 8/8: 部署完成！${NC}"
+echo -e "\n${YELLOW}>>> 步骤 9/9: 部署完成！${NC}"
 echo
 echo -e "${GREEN}===================================================================${NC}"
 echo -e "${GREEN}  恭喜！您的个人网盘已成功部署！                           ${NC}"
 echo -e "${GREEN}-------------------------------------------------------------------${NC}"
-echo -e "  访问地址:   ${YELLOW}http://${DOMAIN_OR_IP}${NC}"
+echo -e "  访问地址:   ${YELLOW}${FINAL_URL}${NC}"
 echo -e "  网盘总容量: ${YELLOW}${DISK_QUOTA_GB} GB${NC}"
 echo -e "  登录用户:   ${YELLOW}${APP_USERNAME}${NC}"
 echo -e "  登录密码:   (您刚才设置的密码)"
