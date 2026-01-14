@@ -48,17 +48,29 @@ install_app() {
     echo "2. 域名 (自动 HTTPS，需要提前解析域名到此 IP)"
     read -p "请输入数字 [1-2]: " MODE
 
+    # 初始化变量
+    CADDY_PORT_MAPPING=""
+    
     if [[ "$MODE" == "2" ]]; then
         read -p "请输入您的域名 (例如: drive.example.com): " DOMAIN
+        # 域名模式：Caddy 监听 80，自动申请 HTTPS
         CADDY_CONFIG="$DOMAIN {
     reverse_proxy app:5000
 }"
+        # 域名模式不需要额外的端口映射，只需要 80 和 443
+        CADDY_PORT_MAPPING='      - "80:80"
+      - "443:443"'
     else
         read -p "请输入访问端口 (默认: 8080): " PORT
         PORT=${PORT:-8080}
+        # IP模式：Caddy 监听自定义端口
         CADDY_CONFIG=":$PORT {
     reverse_proxy app:5000
 }"
+        # IP模式需要映射自定义端口
+        CADDY_PORT_MAPPING="      - \"80:80\"
+      - \"443:443\"
+      - \"${PORT}:${PORT}\""
     fi
 
     # 2. 创建目录
@@ -69,6 +81,7 @@ install_app() {
     echo "$CADDY_CONFIG" > $INSTALL_DIR/caddy/Caddyfile
 
     # 4. 写入 docker-compose.yml
+    # 注意：这里直接使用变量 CADDY_PORT_MAPPING 插入端口配置，避免 sed 删除失败的问题
     cat > $INSTALL_DIR/docker-compose.yml <<EOF
 version: '3.8'
 services:
@@ -100,9 +113,7 @@ services:
     container_name: ${APP_NAME}-caddy
     restart: always
     ports:
-      - "80:80"
-      - "443:443"
-      - "${PORT}:${PORT}" 
+${CADDY_PORT_MAPPING}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./caddy/data:/data
@@ -110,31 +121,21 @@ services:
     depends_on:
       - app
 EOF
-    
-    # 修正 docker-compose 端口部分 (如果选了域名，不需要暴露自定义端口)
-    if [[ "$MODE" == "2" ]]; then
-        sed -i "/\${PORT}:\${PORT}/d" $INSTALL_DIR/docker-compose.yml
-    fi
 
     # 5. 拉取并启动
     cd $INSTALL_DIR
-    # 注意：这里假设你已经把镜像推送到 Docker Hub，如果没有，需要用 build
-    # echo "正在拉取镜像..."
-    # docker-compose pull
-    
-    # 为了演示，我们假设是本地构建（如果你发布到 Github，用户会 clone 代码）
-    # 如果是提供给用户，建议 build 放在安装包里，或者直接拉取你的 Docker Hub 镜像
-    # 这里演示 git clone 后的构建逻辑：
-    
     echo -e "${YELLOW}正在构建并启动容器...${PLAIN}"
-    # 假设 install.sh 在项目根目录运行
-    docker-compose up -d --build
+    
+    # 尝试拉取镜像，如果失败则尝试本地构建（适配开发环境）
+    docker-compose pull || docker-compose up -d --build
+    docker-compose up -d
 
     echo -e "${GREEN}安装完成！${PLAIN}"
     if [[ "$MODE" == "2" ]]; then
         echo -e "请访问: https://$DOMAIN"
     else
-        IP=$(curl -s ifconfig.me)
+        # 获取本机公网IP
+        IP=$(curl -s4 ifconfig.me)
         echo -e "请访问: http://$IP:$PORT"
     fi
     echo -e "用户名: $ADMIN_USER"
@@ -143,12 +144,13 @@ EOF
 
 update_app() {
     check_root
-    cd $INSTALL_DIR
+    cd $INSTALL_DIR || exit 1
     echo -e "${YELLOW}正在更新应用...${PLAIN}"
-    # 这里可以是 git pull 或者 docker-compose pull
-    # git pull
+    docker-compose pull
     docker-compose down
-    docker-compose up -d --build
+    docker-compose up -d
+    # 清理无用镜像
+    docker image prune -f
     echo -e "${GREEN}更新完成！${PLAIN}"
 }
 
@@ -156,7 +158,7 @@ uninstall_app() {
     check_root
     read -p "确定要卸载吗？数据将保留在 $INSTALL_DIR (y/n): " CONFIRM
     if [[ "$CONFIRM" == "y" ]]; then
-        cd $INSTALL_DIR
+        cd $INSTALL_DIR || exit 1
         docker-compose down
         # rm -rf $INSTALL_DIR # 如果想彻底删除数据，取消注释
         echo -e "${GREEN}卸载完成。数据保留在 $INSTALL_DIR${PLAIN}"
