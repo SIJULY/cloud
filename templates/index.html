@@ -522,9 +522,24 @@
                 activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error'].includes(t.status)); },
                 activeTransferCount() { return this.activeTransfers.filter(t => t.status !== 'error').length; }
             },
-            mounted() { this.loadFiles(); this.loadHistory(); window.addEventListener('click', this.closeMenu); },
-            beforeUnmount() { window.removeEventListener('click', this.closeMenu); },
+            mounted() { 
+                this.loadFiles(); this.loadHistory(); window.addEventListener('click', this.closeMenu);
+                // 【核心】防误触保护：如果有任务在进行，关闭网页前弹窗警告
+                window.addEventListener('beforeunload', this.handleBeforeUnload);
+            },
+            beforeUnmount() { 
+                window.removeEventListener('click', this.closeMenu); 
+                window.removeEventListener('beforeunload', this.handleBeforeUnload);
+            },
             methods: {
+                // 防误触逻辑
+                handleBeforeUnload(e) {
+                    if (this.activeTransferCount > 0) {
+                        e.preventDefault();
+                        e.returnValue = ''; // 触发浏览器弹窗
+                        return '';
+                    }
+                },
                 // --- 基础导航逻辑 ---
                 switchTab(tab) { this.currentTab = tab; this.loadFiles(''); },
                 switchCategory(type) { this.currentTab = 'category'; this.currentCategory = type; this.loadFiles(''); },
@@ -600,17 +615,17 @@
 
                 // --- 核心文件操作 ---
                 async createFolder() { const name = prompt("请输入文件夹名称:", "新建文件夹"); if (!name) return; const res = await fetch('/api/mkdir', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: this.path, name: name }) }); if (res.ok) { this.showToast("文件夹创建成功"); this.loadFiles(this.path); } else { const err = await res.json(); alert("创建失败: " + err.error); } },
-                async shareSelected() { const count = this.selectedFiles.length; if (count === 0) return; const res = await fetch('/api/share/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); const data = await res.json(); if(data.status === 'success') { const links = data.links.join('\n'); navigator.clipboard.writeText(links).then(() => { alert(`链接已复制:\n${links}`); }); this.showToast(`分享成功`); } else { alert("分享失败"); } this.closeMenu(); },
-                async cancelShare(shareId) { if(!confirm("确定取消分享？")) return; await fetch('/api/share/cancel', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: shareId }) }); this.showToast("分享已取消"); this.loadFiles(); },
+                async shareSelected() { const count = this.selectedFiles.length; if (count === 0) return; const res = await fetch('/api/share/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); const data = await res.json(); if(data.status === 'success') { const links = data.links.join('\n'); navigator.clipboard.writeText(links).then(() => { alert(`链接已复制:\n${links}`); }); this.showToast(`成功创建 ${count} 个分享`); } else { alert("分享创建失败"); } this.closeMenu(); },
+                async cancelShare(shareId) { if(!confirm("确定要取消此分享吗？")) return; await fetch('/api/share/cancel', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: shareId }) }); this.showToast("分享已取消"); this.loadFiles(); },
                 async handleMoreAction(action) {
                     this.closeMenu(); const count = this.selectedFiles.length;
-                    if (action === 'delete') { if (confirm(`确认删除 ${count} 个项目？`)) { const res = await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); if(res.ok) { this.showToast(`已移入回收站`); this.loadFiles(this.path); } } }
-                    else if (action === 'rename') { if (count !== 1) return alert("只能重命名一个"); const oldPath = this.selectedFiles[0]; const oldName = oldPath.split('/').pop(); const newName = prompt("重命名:", oldName); if (newName && newName !== oldName) { const res = await fetch('/api/rename', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: oldPath, name: newName }) }); if (res.ok) { this.showToast("重命名成功"); this.loadFiles(this.path); } } }
-                    else if (action === 'move' || action === 'copy') { const dest = prompt(`输入目标路径 (相对根目录):`, ""); if (dest !== null) { const res = await fetch('/api/operate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action: action, files: this.selectedFiles, dest: dest }) }); const data = await res.json(); if (data.errors && data.errors.length > 0) alert("失败:\n" + data.errors.join("\n")); else { this.showToast("操作成功"); this.loadFiles(this.path); } } }
+                    if (action === 'delete') { if (confirm(`确认要删除这 ${count} 个项目吗？`)) { const res = await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); if(res.ok) { this.showToast(`已移入回收站`); this.loadFiles(this.path); } } }
+                    else if (action === 'rename') { if (count !== 1) return alert("一次只能重命名一个文件"); const oldPath = this.selectedFiles[0]; const oldName = oldPath.split('/').pop(); const newName = prompt("重命名:", oldName); if (newName && newName !== oldName) { const res = await fetch('/api/rename', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: oldPath, name: newName }) }); if (res.ok) { this.showToast("重命名成功"); this.loadFiles(this.path); } } }
+                    else if (action === 'move' || action === 'copy') { const dest = prompt(`请输入目标文件夹路径 (相对根目录):`, ""); if (dest !== null) { const res = await fetch('/api/operate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ action: action, files: this.selectedFiles, dest: dest }) }); const data = await res.json(); if (data.errors && data.errors.length > 0) alert("部分操作失败:\n" + data.errors.join("\n")); else { this.showToast("操作成功"); this.loadFiles(this.path); } } }
                 },
-                async restoreTrash() { if (!this.selectedFiles.length) return; const res = await fetch('/api/trash/restore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ items: this.selectedFiles }) }); if(res.ok) { this.showToast("已还原"); this.loadFiles(); } },
-                async deleteTrash() { if (!confirm("无法撤销，确定永久删除？")) return; const res = await fetch('/api/trash/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ items: this.selectedFiles }) }); if(res.ok) { this.showToast("已彻底删除"); this.loadFiles(); } },
-                async emptyTrash() { if (!confirm("确定清空回收站？")) return; await fetch('/api/trash/empty', { method: 'POST' }); this.showToast("回收站已清空"); this.loadFiles(); },
+                async restoreTrash() { if (!this.selectedFiles.length) return; const res = await fetch('/api/trash/restore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ items: this.selectedFiles }) }); if(res.ok) { this.showToast("文件已还原"); this.loadFiles(); } },
+                async deleteTrash() { if (!confirm("此操作无法撤销，确定要永久删除吗？")) return; const res = await fetch('/api/trash/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ items: this.selectedFiles }) }); if(res.ok) { this.showToast("文件已彻底删除"); this.loadFiles(); } },
+                async emptyTrash() { if (!confirm("确定清空回收站吗？")) return; await fetch('/api/trash/empty', { method: 'POST' }); this.showToast("回收站已清空"); this.loadFiles(); },
                 
                 // --- 传输逻辑 ---
                 triggerUpload() { this.$refs.fileInput.click(); },
@@ -626,8 +641,7 @@
                         if (e.lengthComputable) {
                             const now = new Date().getTime();
                             if (now - task.lastTime >= 500) { const diff = e.loaded - task.lastLoaded; const time = (now - task.lastTime) / 1000; task.speedText = this.formatSpeed(diff / time); task.lastLoaded = e.loaded; task.lastTime = now; }
-                            const percent = (e.loaded / e.total) * 100; task.progress = percent;
-                            task.statusText = percent >= 100 ? '写入中...' : Math.round(percent) + '%'; if (percent >= 100) task.speedText = '';
+                            const percent = (e.loaded / e.total) * 100; task.progress = percent; task.statusText = percent >= 100 ? '写入中...' : Math.round(percent) + '%'; if (percent >= 100) task.speedText = '';
                         }
                     };
                     xhr.onload = () => { if (xhr.status === 200) { task.progress = 100; task.status = 'success'; task.speedText = ''; this.completeTask(task); this.triggerRefresh(); } else { task.status = 'error'; task.statusText = '失败'; } };
@@ -636,7 +650,7 @@
                     xhr.open('POST', '/api/upload', true); xhr.send(formData);
                 },
 
-                // --- 极客流式下载 ---
+                // --- 智能下载 (Pro Max) ---
                 async downloadSelected() {
                     this.closeMenu();
                     if (this.selectedFiles.length === 0) return;
@@ -648,9 +662,17 @@
                         const data = await res.json();
                         const downloadUrl = await this.pollForDownloadUrl(data.task_id, task);
                         if (!downloadUrl) return;
-                        if (window.showSaveFilePicker) { await this.streamDownload(downloadUrl, task.name, task); } 
-                        else { task.statusText = '浏览器接管'; task.progress = 100; task.status = 'success'; window.location.href = downloadUrl; }
+
+                        // 【核心】智能判断：支持 API 且文件 < 2GB
+                        if (window.showSaveFilePicker) {
+                            await this.streamDownload(downloadUrl, task.name, task);
+                        } else {
+                            this.fallbackToNative(task, downloadUrl);
+                        }
                     } catch (e) { task.status = 'error'; task.statusText = '请求失败'; console.error(e); }
+                },
+                fallbackToNative(task, url) {
+                    task.statusText = '浏览器接管'; task.progress = 100; task.status = 'success'; window.location.href = url;
                 },
                 pollForDownloadUrl(taskId, task) {
                     return new Promise((resolve) => {
@@ -665,11 +687,23 @@
                 },
                 async streamDownload(url, filename, task) {
                     try {
+                        // 1. 发起请求获取头部信息
+                        const response = await fetch(url);
+                        const totalStr = response.headers.get('Content-Length');
+                        const total = totalStr ? parseInt(totalStr, 10) : 0;
+
+                        // 【核心】如果大于 2GB (2 * 1024 * 1024 * 1024)，直接回退到原生下载
+                        if (total > 2147483648) {
+                            console.log("文件过大 (>2GB)，切换回原生下载");
+                            if(task.cancelReader) task.cancelReader();
+                            this.fallbackToNative(task, url);
+                            return;
+                        }
+
+                        // 2. 正常流式流程
                         const handle = await window.showSaveFilePicker({ suggestedName: filename });
                         const writable = await handle.createWritable();
                         task.status = 'downloading';
-                        const response = await fetch(url);
-                        const total = +response.headers.get('Content-Length');
                         const reader = response.body.getReader();
                         task.cancelReader = () => reader.cancel();
                         let loaded = 0; task.lastTime = Date.now();
@@ -682,8 +716,7 @@
                                 const speed = (loaded - task.lastLoaded) / ((now - task.lastTime)/1000);
                                 task.speedText = this.formatSpeed(speed); task.lastLoaded = loaded; task.lastTime = now;
                             }
-                            if (total) { const percent = (loaded / total) * 100; task.progress = percent; task.statusText = Math.round(percent) + '%'; } 
-                            else { task.statusText = this.formatSize(loaded); }
+                            if (total) { const percent = (loaded / total) * 100; task.progress = percent; task.statusText = Math.round(percent) + '%'; } else { task.statusText = this.formatSize(loaded); }
                         }
                         await writable.close();
                         task.progress = 100; task.status = 'success'; task.statusText = '完成'; task.speedText = ''; this.completeTask(task);
@@ -691,7 +724,10 @@
                         console.error(err);
                         if (err.name === 'AbortError') { task.status = 'error'; task.statusText = '已取消'; }
                         else if (err.name === 'NotAllowedError') { const idx = this.transferList.indexOf(task); if (idx > -1) this.transferList.splice(idx, 1); }
-                        else { task.status = 'error'; task.statusText = '下载出错'; }
+                        else { 
+                            // 出错回退
+                            this.fallbackToNative(task, url); 
+                        }
                     }
                 },
                 cancelTask(task) { if (task.status === 'uploading' && task.xhr) task.xhr.abort(); if (task.status === 'downloading' && task.cancelReader) task.cancelReader(); const index = this.transferList.indexOf(task); if (index > -1) this.transferList.splice(index, 1); },
