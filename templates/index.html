@@ -449,7 +449,7 @@
     </div>
 
     <script>
-        const { createApp } = Vue;
+        const { createApp, reactive } = Vue;
 
         createApp({
             delimiters: ['[[', ']]'],
@@ -621,7 +621,8 @@
                 },
 
                 uploadOneFile(file) {
-                    const task = { 
+                    // 【核心修改】使用 reactive 创建响应式对象
+                    const task = reactive({ 
                         name: file.name, 
                         progress: 0, 
                         status: 'uploading', 
@@ -632,7 +633,7 @@
                         lastLoaded: 0,
                         lastTime: new Date().getTime(),
                         speedText: ''
-                    };
+                    });
                     this.transferList.unshift(task);
                     
                     const formData = new FormData(); 
@@ -640,15 +641,14 @@
                     formData.append('path', this.path);
                     
                     const xhr = new XMLHttpRequest();
-                    task.xhr = xhr; // 保存引用，用于取消
+                    task.xhr = xhr; 
 
                     xhr.upload.onprogress = (e) => { 
                         if (e.lengthComputable) { 
                             const now = new Date().getTime();
-                            // 计算网速 (每500ms更新一次，防止闪烁)
                             if (now - task.lastTime >= 500) {
                                 const diffLoaded = e.loaded - task.lastLoaded;
-                                const diffTime = (now - task.lastTime) / 1000; // 秒
+                                const diffTime = (now - task.lastTime) / 1000; 
                                 const speed = diffLoaded / diffTime;
                                 task.speedText = this.formatSpeed(speed);
                                 
@@ -665,7 +665,7 @@
                         if (xhr.status === 200) { 
                             task.progress = 100; 
                             task.status = 'success'; 
-                            task.speedText = ''; // 完成后隐藏速度
+                            task.speedText = ''; 
                             this.completeTask(task); 
                             this.loadFiles(this.path); 
                         } else { 
@@ -677,7 +677,6 @@
                         task.status = 'error'; 
                         task.statusText = '网络错误'; 
                     };
-                    // 如果被手动 abort，会触发 abort 事件
                     xhr.onabort = () => {
                         task.status = 'error'; 
                         task.statusText = '已取消';
@@ -687,12 +686,9 @@
                     xhr.send(formData);
                 },
                 cancelTask(task) {
-                    // 如果正在上传，先中断网络请求
                     if (task.status === 'uploading' && task.xhr) {
                         task.xhr.abort();
                     }
-                    
-                    // 从列表中移除
                     const index = this.transferList.indexOf(task);
                     if (index > -1) {
                         this.transferList.splice(index, 1);
@@ -701,7 +697,8 @@
                 async downloadSelected() {
                     if(this.selectedFiles.length === 0) return;
                     this.showTransferDrawer = true; this.transferTab = 'active';
-                    const task = { name: `批量下载 (${this.selectedFiles.length}个)`, progress: 0, status: 'processing', statusText: '打包中...', type: 'download', startTime: new Date().getTime() };
+                    // 【核心修改】使用 reactive 创建响应式对象
+                    const task = reactive({ name: `批量下载 (${this.selectedFiles.length}个)`, progress: 0, status: 'processing', statusText: '打包中...', type: 'download', startTime: new Date().getTime() });
                     this.transferList.unshift(task);
                     try { const res = await fetch('/api/archive', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({files: this.selectedFiles}) }); const data = await res.json(); this.pollDownloadStatus(data.task_id, task); } catch (e) { task.status = 'error'; task.statusText = '请求失败'; }
                 },
