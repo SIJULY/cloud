@@ -176,11 +176,11 @@
                         </button>
                     </div>
 
-                    <div class="flex space-x-3" v-if="currentTab === 'files'">
-                         <button @click="triggerUpload" class="btn-pill">
+                    <div class="flex space-x-3" v-if="currentTab === 'files' || currentTab === 'category'">
+                         <button @click="triggerUpload" class="btn-pill" v-if="currentTab === 'files'">
                             <i class="fa-solid fa-cloud-arrow-up"></i> 上传
                         </button>
-                        <button @click="createFolder" class="btn-pill">
+                        <button @click="createFolder" class="btn-pill" v-if="currentTab === 'files'">
                             <i class="fa-solid fa-folder-plus"></i> 新建
                         </button>
                         <input type="file" ref="fileInput" @change="handleFileUpload" style="display: none" multiple>
@@ -465,7 +465,8 @@
                     showTransferDrawer: false, transferTab: 'active',
                     transferList: [], transferHistory: [],
                     toast: { show: false, message: '' },
-                    showMoreMenu: false
+                    showMoreMenu: false,
+                    refreshTimer: null
                 }
             },
             computed: {
@@ -506,6 +507,13 @@
                         try { const res = await fetch('/api/share/list'); const data = await res.json(); this.files = data; } catch (e) { console.error(e); }
                     }
                     this.loading = false;
+                },
+                triggerRefresh() {
+                    if (this.refreshTimer) clearTimeout(this.refreshTimer);
+                    this.refreshTimer = setTimeout(() => {
+                        this.loadFiles(this.path);
+                        this.refreshTimer = null;
+                    }, 1500);
                 },
                 goUp() { if(!this.path) return; const parts = this.path.split('/'); parts.pop(); this.loadFiles(parts.join('/')); },
                 handleFileClick(file, event) {
@@ -611,7 +619,6 @@
                     event.target.value = '';
                 },
                 
-                // 格式化网速函数
                 formatSpeed(bytesPerSecond) {
                     if (bytesPerSecond === 0) return '0 KB/s';
                     const k = 1024;
@@ -621,7 +628,6 @@
                 },
 
                 uploadOneFile(file) {
-                    // 【核心修改】使用 reactive 创建响应式对象
                     const task = reactive({ 
                         name: file.name, 
                         progress: 0, 
@@ -657,8 +663,14 @@
                             }
 
                             const percent = (e.loaded / e.total) * 100; 
-                            task.progress = percent; 
-                            task.statusText = Math.round(percent) + '%'; 
+                            task.progress = percent;
+                            
+                            if (percent >= 100) {
+                                task.statusText = '正在保存...';
+                                task.speedText = '';
+                            } else {
+                                task.statusText = Math.round(percent) + '%';
+                            }
                         } 
                     };
                     xhr.onload = () => { 
@@ -667,7 +679,7 @@
                             task.status = 'success'; 
                             task.speedText = ''; 
                             this.completeTask(task); 
-                            this.loadFiles(this.path); 
+                            this.triggerRefresh(); 
                         } else { 
                             task.status = 'error'; 
                             task.statusText = '失败'; 
@@ -697,7 +709,6 @@
                 async downloadSelected() {
                     if(this.selectedFiles.length === 0) return;
                     this.showTransferDrawer = true; this.transferTab = 'active';
-                    // 【核心修改】使用 reactive 创建响应式对象
                     const task = reactive({ name: `批量下载 (${this.selectedFiles.length}个)`, progress: 0, status: 'processing', statusText: '打包中...', type: 'download', startTime: new Date().getTime() });
                     this.transferList.unshift(task);
                     try { const res = await fetch('/api/archive', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({files: this.selectedFiles}) }); const data = await res.json(); this.pollDownloadStatus(data.task_id, task); } catch (e) { task.status = 'error'; task.statusText = '请求失败'; }
