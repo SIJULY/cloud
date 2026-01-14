@@ -8,6 +8,8 @@ PLAIN="\033[0m"
 
 APP_NAME="my-cloud-drive"
 INSTALL_DIR="/opt/$APP_NAME"
+# 你的 GitHub 仓库地址
+REPO_URL="https://github.com/SIJULY/cloud.git"
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -16,13 +18,29 @@ check_root() {
     fi
 }
 
-check_docker() {
+check_env() {
+    # 检查/安装 Git
+    if ! command -v git &> /dev/null; then
+        echo -e "${YELLOW}正在安装 Git...${PLAIN}"
+        if [ -x "$(command -v apt-get)" ]; then
+            apt-get update && apt-get install -y git
+        elif [ -x "$(command -v yum)" ]; then
+            yum install -y git
+        else
+            echo -e "${RED}无法自动安装 git，请手动安装后重试${PLAIN}"
+            exit 1
+        fi
+    fi
+
+    # 检查/安装 Docker
     if ! command -v docker &> /dev/null; then
         echo -e "${YELLOW}检测到未安装 Docker，正在自动安装...${PLAIN}"
         curl -fsSL https://get.docker.com | bash
         systemctl enable docker
         systemctl start docker
     fi
+    
+    # 检查/安装 Docker Compose
     if ! command -v docker-compose &> /dev/null; then
         echo -e "${YELLOW}正在安装 Docker Compose...${PLAIN}"
         curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
@@ -32,11 +50,27 @@ check_docker() {
 
 install_app() {
     check_root
-    check_docker
+    check_env
 
     echo -e "${GREEN}=== 开始安装 ${APP_NAME} ===${PLAIN}"
 
-    # 1. 收集配置信息
+    # 1. 准备目录与源码
+    if [ -d "$INSTALL_DIR" ]; then
+        echo -e "${YELLOW}检测到目录 $INSTALL_DIR 已存在，正在删除旧文件...${PLAIN}"
+        rm -rf "$INSTALL_DIR"
+    fi
+
+    echo -e "${GREEN}正在从 GitHub 拉取源码...${PLAIN}"
+    git clone "$REPO_URL" "$INSTALL_DIR"
+    
+    if [ ! -d "$INSTALL_DIR" ]; then
+        echo -e "${RED}源码拉取失败，请检查网络或仓库地址${PLAIN}"
+        exit 1
+    fi
+
+    cd "$INSTALL_DIR"
+
+    # 2. 收集配置信息
     read -p "请输入后台管理用户名 (默认: admin): " ADMIN_USER
     ADMIN_USER=${ADMIN_USER:-admin}
 
@@ -53,11 +87,12 @@ install_app() {
     
     if [[ "$MODE" == "2" ]]; then
         read -p "请输入您的域名 (例如: drive.example.com): " DOMAIN
-        # 域名模式：Caddy 监听 80，自动申请 HTTPS
+        # 域名模式：Caddy 监听 80/443
         CADDY_CONFIG="$DOMAIN {
+    encode gzip
     reverse_proxy app:5000
 }"
-        # 域名模式不需要额外的端口映射，只需要 80 和 443
+        # 域名模式只需要映射 80 和 443
         CADDY_PORT_MAPPING='      - "80:80"
       - "443:443"'
     else
@@ -65,6 +100,7 @@ install_app() {
         PORT=${PORT:-8080}
         # IP模式：Caddy 监听自定义端口
         CADDY_CONFIG=":$PORT {
+    encode gzip
     reverse_proxy app:5000
 }"
         # IP模式需要映射自定义端口
@@ -73,20 +109,21 @@ install_app() {
       - \"${PORT}:${PORT}\""
     fi
 
-    # 2. 创建目录
-    mkdir -p $INSTALL_DIR/data/{storage,trash,shares}
-    mkdir -p $INSTALL_DIR/caddy
+    # 3. 创建数据目录 (确保挂载点存在)
+    mkdir -p data/{storage,trash,shares}
+    mkdir -p caddy
 
-    # 3. 写入 Caddyfile
-    echo "$CADDY_CONFIG" > $INSTALL_DIR/caddy/Caddyfile
+    # 4. 写入 Caddy配置
+    echo "$CADDY_CONFIG" > caddy/Caddyfile
 
-    # 4. 写入 docker-compose.yml
-    # 注意：这里直接使用变量 CADDY_PORT_MAPPING 插入端口配置，避免 sed 删除失败的问题
-    cat > $INSTALL_DIR/docker-compose.yml <<EOF
+    # 5. 生成 docker-compose.yml
+    # 使用cat写入，覆盖仓库里的默认模板
+    cat > docker-compose.yml <<EOF
 version: '3.8'
 services:
   app:
-    image: xiaolongnvtaba/my-cloud-drive:latest
+    build: .
+    image: ${APP_NAME}:local
     container_name: ${APP_NAME}-app
     restart: always
     environment:
@@ -122,34 +159,54 @@ ${CADDY_PORT_MAPPING}
       - app
 EOF
 
-    # 5. 拉取并启动
-    cd $INSTALL_DIR
-    echo -e "${YELLOW}正在构建并启动容器...${PLAIN}"
+    # 6. 构建并启动
+    echo -e "${YELLOW}正在构建并启动容器 (这可能需要几分钟)...${PLAIN}"
     
-    # 尝试拉取镜像，如果失败则尝试本地构建（适配开发环境）
-    docker-compose pull || docker-compose up -d --build
-    docker-compose up -d
+    # 强制重新构建本地镜像
+    docker-compose up -d --build
 
-    echo -e "${GREEN}安装完成！${PLAIN}"
-    if [[ "$MODE" == "2" ]]; then
-        echo -e "请访问: https://$DOMAIN"
+    # 检查运行状态
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}安装成功！${PLAIN}"
+        echo -e "------------------------------------------------"
+        if [[ "$MODE" == "2" ]]; then
+            echo -e "访问地址: https://$DOMAIN"
+        else
+            IP=$(curl -s4 ifconfig.me)
+            echo -e "访问地址: http://$IP:$PORT"
+        fi
+        echo -e "用户名: $ADMIN_USER"
+        echo -e "密码: $ADMIN_PASS"
+        echo -e "------------------------------------------------"
+        echo -e "安装目录: $INSTALL_DIR"
     else
-        # 获取本机公网IP
-        IP=$(curl -s4 ifconfig.me)
-        echo -e "请访问: http://$IP:$PORT"
+        echo -e "${RED}安装失败，请检查上方报错信息。${PLAIN}"
     fi
-    echo -e "用户名: $ADMIN_USER"
-    echo -e "密码: $ADMIN_PASS"
 }
 
 update_app() {
     check_root
-    cd $INSTALL_DIR || exit 1
-    echo -e "${YELLOW}正在更新应用...${PLAIN}"
-    docker-compose pull
-    docker-compose down
-    docker-compose up -d
-    # 清理无用镜像
+    if [ ! -d "$INSTALL_DIR" ]; then
+        echo -e "${RED}未检测到安装目录，请先安装。${PLAIN}"
+        exit 1
+    fi
+    
+    cd "$INSTALL_DIR"
+    echo -e "${YELLOW}正在备份配置文件...${PLAIN}"
+    cp docker-compose.yml docker-compose.yml.bak
+    cp caddy/Caddyfile caddy/Caddyfile.bak
+    
+    echo -e "${GREEN}正在拉取最新代码...${PLAIN}"
+    git fetch --all
+    git reset --hard origin/main
+    
+    echo -e "${YELLOW}恢复配置文件...${PLAIN}"
+    mv docker-compose.yml.bak docker-compose.yml
+    mv caddy/Caddyfile.bak caddy/Caddyfile
+    
+    echo -e "${YELLOW}正在重建容器...${PLAIN}"
+    docker-compose up -d --build --remove-orphans
+    # 清理旧镜像
     docker image prune -f
     echo -e "${GREEN}更新完成！${PLAIN}"
 }
@@ -158,12 +215,18 @@ uninstall_app() {
     check_root
     read -p "确定要卸载吗？数据将保留在 $INSTALL_DIR (y/n): " CONFIRM
     if [[ "$CONFIRM" == "y" ]]; then
-        cd $INSTALL_DIR || exit 1
-        docker-compose down
-        # rm -rf $INSTALL_DIR # 如果想彻底删除数据，取消注释
-        echo -e "${GREEN}卸载完成。数据保留在 $INSTALL_DIR${PLAIN}"
+        if [ -d "$INSTALL_DIR" ]; then
+            cd "$INSTALL_DIR"
+            docker-compose down
+            cd ..
+            # rm -rf "$INSTALL_DIR" # 可选：彻底删除
+            echo -e "${GREEN}服务已停止。数据文件保留在: $INSTALL_DIR${PLAIN}"
+            echo -e "如需彻底删除，请运行: rm -rf $INSTALL_DIR"
+        else
+            echo -e "${RED}目录不存在，无需卸载。${PLAIN}"
+        fi
     else
-        echo "取消卸载"
+        echo "已取消"
     fi
 }
 
