@@ -134,7 +134,7 @@
             text-align: center; color: #2563eb;
         }
 
-        /* 顶部微型加载条 (解决切换卡顿感) */
+        /* 【新增】顶部微型加载条 (解决切换卡顿感) */
         .loading-bar {
             position: fixed; top: 0; left: 0; height: 3px; background: #3b82f6; z-index: 9999;
             transition: width 0.2s; box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
@@ -145,7 +145,7 @@
 
     <div id="app" class="flex w-full h-full relative" 
          @click="closeMenu" 
-         @contextmenu.prevent=""
+         @contextmenu.prevent="" 
          @dragover.prevent="onDragOver" 
          @dragleave.prevent="onDragLeave" 
          @drop.prevent="onDrop">
@@ -539,7 +539,7 @@
                     result = result.filter(f => !f.name.startsWith('批量下载') && !f.name.match(/^batch_download_.*\.zip$/));
                     return result;
                 },
-                activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error'].includes(t.status)); },
+                activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error', 'pending'].includes(t.status)); },
                 activeTransferCount() { return this.activeTransfers.filter(t => t.status !== 'error').length; }
             },
             mounted() { 
