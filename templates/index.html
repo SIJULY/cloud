@@ -15,7 +15,7 @@
             background-color: #f3f4f6; 
             height: 100vh; 
             overflow: hidden; 
-            user-select: none; /* 防止双击选中文本 */
+            user-select: none; 
         }
         
         /* 侧边栏选中态 */
@@ -102,7 +102,7 @@
 
         /* 右键/下拉菜单 */
         .dropdown-menu {
-            position: fixed; /* 改为 fixed 以支持右键定位 */
+            position: fixed; 
             width: 160px; background: white; border-radius: 8px; 
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
             border: 1px solid #f3f4f6; z-index: 60; padding: 4px 0;
@@ -125,7 +125,7 @@
             position: fixed; inset: 0; background: rgba(59, 130, 246, 0.1);
             border: 4px dashed #3b82f6; z-index: 999;
             display: flex; justify-content: center; align-items: center;
-            pointer-events: none; /* 让事件穿透，除非真正 drop */
+            pointer-events: none; 
         }
         .drag-active .drag-overlay { display: flex; }
         .drag-overlay-content {
@@ -133,16 +133,25 @@
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
             text-align: center; color: #2563eb;
         }
+        
+        /* 顶部微型加载条 */
+        .loading-bar {
+            position: fixed; top: 0; left: 0; height: 3px; background: #3b82f6; z-index: 9999;
+            transition: width 0.2s; box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
+        }
     </style>
 </head>
 <body class="text-gray-700">
 
     <div id="app" class="flex w-full h-full relative" 
          @click="closeMenu" 
-         @contextmenu.prevent=""
+         @contextmenu.prevent="" 
          @dragover.prevent="onDragOver" 
          @dragleave.prevent="onDragLeave" 
          @drop.prevent="onDrop">
+
+        <div v-if="isFetching" class="loading-bar" style="width: 70%; animation: load 2s infinite;"></div>
+        <style>@keyframes load { 0% { width: 0; left: 0; } 50% { width: 70%; left: 30%; } 100% { width: 100%; left: 100%; } }</style>
 
         <div v-if="dragActive" class="drag-overlay">
             <div class="drag-overlay-content">
@@ -345,7 +354,8 @@
                 </div>
 
                 <div class="flex-1 overflow-auto px-6 pb-6 pt-4" @click.self="selectedFiles = []" @contextmenu.self.prevent="closeMenu">
-                    <div v-if="loading" class="flex flex-col items-center justify-center mt-32 text-gray-400">
+                    
+                    <div v-if="loading && files.length === 0" class="flex flex-col items-center justify-center mt-32 text-gray-400">
                         <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-3 text-blue-500"></i>
                         <span class="text-sm">加载中...</span>
                     </div>
@@ -512,19 +522,28 @@
                     files: [], selectedFiles: [], path: '', usage: {used: '0 B', total: '0 B', percent: 0}, loading: false, viewMode: 'grid', currentTab: 'files', currentCategory: '', searchQuery: '', 
                     showTransferDrawer: false, transferTab: 'active', transferList: [], transferHistory: [], toast: { show: false, message: '' }, 
                     showMoreMenu: false, refreshTimer: null, dragActive: false,
-                    // 右键菜单状态
-                    contextMenu: { show: false, x: 0, y: 0, targetFile: null }
+                    contextMenu: { show: false, x: 0, y: 0, targetFile: null },
+                    isFetching: false // 用于顶部微型加载条
                 }
             },
             computed: {
                 currentFolderName() { if (!this.path) return ''; const parts = this.path.split('/'); return parts[parts.length - 1]; },
-                filteredFiles() { if (!this.searchQuery) return this.files; const lowerQuery = this.searchQuery.toLowerCase(); return this.files.filter(file => file.name.toLowerCase().includes(lowerQuery)); },
+                filteredFiles() { 
+                    // 1. 基础过滤：搜索
+                    let result = this.files;
+                    if (this.searchQuery) {
+                        const lowerQuery = this.searchQuery.toLowerCase(); 
+                        result = result.filter(file => file.name.toLowerCase().includes(lowerQuery)); 
+                    }
+                    // 2. 垃圾过滤：【核心修改】隐藏后端生成的 "批量下载.zip" 临时文件，防止列表污染
+                    result = result.filter(f => !f.name.startsWith('批量下载') && !f.name.match(/^batch_download_.*\.zip$/));
+                    return result;
+                },
                 activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error'].includes(t.status)); },
                 activeTransferCount() { return this.activeTransfers.filter(t => t.status !== 'error').length; }
             },
             mounted() { 
                 this.loadFiles(); this.loadHistory(); window.addEventListener('click', this.closeMenu);
-                // 【核心】防误触保护：如果有任务在进行，关闭网页前弹窗警告
                 window.addEventListener('beforeunload', this.handleBeforeUnload);
             },
             beforeUnmount() { 
@@ -532,90 +551,44 @@
                 window.removeEventListener('beforeunload', this.handleBeforeUnload);
             },
             methods: {
-                // 防误触逻辑
-                handleBeforeUnload(e) {
-                    if (this.activeTransferCount > 0) {
-                        e.preventDefault();
-                        e.returnValue = ''; // 触发浏览器弹窗
-                        return '';
-                    }
-                },
-                // --- 基础导航逻辑 ---
+                handleBeforeUnload(e) { if (this.activeTransferCount > 0) { e.preventDefault(); e.returnValue = ''; return ''; } },
                 switchTab(tab) { this.currentTab = tab; this.loadFiles(''); },
                 switchCategory(type) { this.currentTab = 'category'; this.currentCategory = type; this.loadFiles(''); },
+                
                 async loadFiles(newPath = '') {
-                    this.loading = true; this.selectedFiles = []; this.searchQuery = '';
+                    // 【核心修改】无感刷新：只有第一次(files为空)才全屏转圈，之后只在顶部显示小进度条
+                    if (this.files.length === 0) this.loading = true;
+                    this.isFetching = true;
+                    this.selectedFiles = []; this.searchQuery = '';
                     try {
                         let url = '';
                         if (this.currentTab === 'files') { this.path = newPath; url = `/api/list?path=${encodeURIComponent(newPath)}`; }
                         else if (this.currentTab === 'category') url = `/api/category?type=${this.currentCategory}`;
                         else if (this.currentTab === 'trash') url = '/api/trash/list';
                         else if (this.currentTab === 'shares') url = '/api/share/list';
+                        
                         const res = await fetch(url); const data = await res.json();
+                        // 数据返回后，瞬间替换，用户无感知
                         if(Array.isArray(data)) this.files = data; else { this.files = data.files; this.usage = data.usage; }
-                    } catch (e) { console.error(e); } finally { this.loading = false; }
+                    } catch (e) { console.error(e); } finally { 
+                        this.loading = false; 
+                        this.isFetching = false; 
+                    }
                 },
                 triggerRefresh() { if (this.refreshTimer) clearTimeout(this.refreshTimer); this.refreshTimer = setTimeout(() => { this.loadFiles(this.path); this.refreshTimer = null; }, 1500); },
                 goUp() { if(!this.path) return; const parts = this.path.split('/'); parts.pop(); this.loadFiles(parts.join('/')); },
-
-                // --- 交互逻辑 (点击/双击/右键) ---
-                handleFileClick(file, event) {
-                    // 如果按住 Ctrl/Cmd，进行多选
-                    if (event.ctrlKey || event.metaKey) {
-                        this.toggleSelect(this.currentTab === 'trash' ? file.id : file.path);
-                    } else {
-                        // 否则单选
-                        this.selectedFiles = [this.currentTab === 'trash' ? file.id : file.path];
-                    }
-                },
-                handleFileDblClick(file) {
-                    if (file.is_dir) {
-                        this.loadFiles(file.path);
-                    } else {
-                        // 文件双击逻辑：图片预览或尝试下载
-                        // 简单处理：如果是图片，可以做个弹窗预览（这里暂时省略复杂预览，直接选中）
-                        // 或者直接触发下载
-                        this.selectedFiles = [file.path];
-                        this.downloadSelected();
-                    }
-                },
-                handleContextMenu(event, file) {
-                    // 右键菜单
-                    this.selectedFiles = [file.path]; // 强制选中当前
-                    this.contextMenu.targetFile = file;
-                    this.contextMenu.x = event.clientX;
-                    this.contextMenu.y = event.clientY;
-                    this.contextMenu.show = true;
-                    this.showMoreMenu = false; // 关闭顶部的菜单
-                },
+                handleFileClick(file, event) { if (event.ctrlKey || event.metaKey) { this.toggleSelect(this.currentTab === 'trash' ? file.id : file.path); } else { this.selectedFiles = [this.currentTab === 'trash' ? file.id : file.path]; } },
+                handleFileDblClick(file) { if (file.is_dir) { this.loadFiles(file.path); } else { this.selectedFiles = [file.path]; this.downloadSelected(); } },
+                handleContextMenu(event, file) { this.selectedFiles = [file.path]; this.contextMenu.targetFile = file; this.contextMenu.x = event.clientX; this.contextMenu.y = event.clientY; this.contextMenu.show = true; this.showMoreMenu = false; },
                 closeMenu() { this.contextMenu.show = false; this.showMoreMenu = false; },
                 toggleMenu(e) { this.showMoreMenu = !this.showMoreMenu; },
-
-                // --- 选择逻辑 ---
                 toggleSelect(idOrPath) { const idx = this.selectedFiles.indexOf(idOrPath); if (idx > -1) this.selectedFiles.splice(idx, 1); else this.selectedFiles.push(idOrPath); },
                 toggleSmartSelect() { const total = this.files.length; const selected = this.selectedFiles.length; if (selected < total) { this.selectedFiles = this.files.map(f => this.currentTab === 'trash' ? f.id : f.path); } else { this.selectedFiles = []; } },
-
-                // --- 拖拽上传 (Drag & Drop) ---
                 onDragOver(e) { this.dragActive = true; },
-                onDragLeave(e) { 
-                    // 只有离开到浏览器外部才取消，简单判定
-                    if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
-                        this.dragActive = false;
-                    }
-                },
-                onDrop(e) {
-                    this.dragActive = false;
-                    const files = e.dataTransfer.files;
-                    if (files.length > 0 && this.currentTab === 'files') {
-                        this.showTransferDrawer = true; 
-                        this.transferTab = 'active';
-                        Array.from(files).forEach(file => this.uploadOneFile(file));
-                    }
-                },
-
-                // --- 核心文件操作 ---
+                onDragLeave(e) { if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) { this.dragActive = false; } },
+                onDrop(e) { this.dragActive = false; const files = e.dataTransfer.files; if (files.length > 0 && this.currentTab === 'files') { this.showTransferDrawer = true; this.transferTab = 'active'; Array.from(files).forEach(file => this.uploadOneFile(file)); } },
                 async createFolder() { const name = prompt("请输入文件夹名称:", "新建文件夹"); if (!name) return; const res = await fetch('/api/mkdir', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: this.path, name: name }) }); if (res.ok) { this.showToast("文件夹创建成功"); this.loadFiles(this.path); } else { const err = await res.json(); alert("创建失败: " + err.error); } },
-                async shareSelected() { const count = this.selectedFiles.length; if (count === 0) return; const res = await fetch('/api/share/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); const data = await res.json(); if(data.status === 'success') { const links = data.links.join('\n'); navigator.clipboard.writeText(links).then(() => { alert(`链接已复制:\n${links}`); }); this.showToast(`成功创建 ${count} 个分享`); } else { alert("分享创建失败"); } this.closeMenu(); },
+                async shareSelected() { const count = this.selectedFiles.length; if (count === 0) return; const res = await fetch('/api/share/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); const data = await res.json(); if(data.status === 'success') { const links = data.links.join('\n'); navigator.clipboard.writeText(links).then(() => { alert(`链接已复制:\n${links}`); }); this.showToast(`分享成功`); } else { alert("分享失败"); } this.closeMenu(); },
                 async cancelShare(shareId) { if(!confirm("确定要取消此分享吗？")) return; await fetch('/api/share/cancel', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: shareId }) }); this.showToast("分享已取消"); this.loadFiles(); },
                 async handleMoreAction(action) {
                     this.closeMenu(); const count = this.selectedFiles.length;
@@ -626,8 +599,6 @@
                 async restoreTrash() { if (!this.selectedFiles.length) return; const res = await fetch('/api/trash/restore', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ items: this.selectedFiles }) }); if(res.ok) { this.showToast("文件已还原"); this.loadFiles(); } },
                 async deleteTrash() { if (!confirm("此操作无法撤销，确定要永久删除吗？")) return; const res = await fetch('/api/trash/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ items: this.selectedFiles }) }); if(res.ok) { this.showToast("文件已彻底删除"); this.loadFiles(); } },
                 async emptyTrash() { if (!confirm("确定清空回收站吗？")) return; await fetch('/api/trash/empty', { method: 'POST' }); this.showToast("回收站已清空"); this.loadFiles(); },
-                
-                // --- 传输逻辑 ---
                 triggerUpload() { this.$refs.fileInput.click(); },
                 handleFileUpload(event) { const files = event.target.files; if (!files.length) return; this.showTransferDrawer = true; this.transferTab = 'active'; Array.from(files).forEach(file => this.uploadOneFile(file)); event.target.value = ''; },
                 formatSpeed(bytesPerSecond) { if (bytesPerSecond === 0) return '0 KB/s'; const k = 1024; const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']; const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k)); return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]; },
@@ -650,7 +621,6 @@
                     xhr.open('POST', '/api/upload', true); xhr.send(formData);
                 },
 
-                // --- 智能下载 (Pro Max) ---
                 async downloadSelected() {
                     this.closeMenu();
                     if (this.selectedFiles.length === 0) return;
@@ -660,14 +630,17 @@
                     try {
                         const res = await fetch('/api/archive', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({files: this.selectedFiles}) });
                         const data = await res.json();
-                        const downloadUrl = await this.pollForDownloadUrl(data.task_id, task);
-                        if (!downloadUrl) return;
+                        
+                        // 修正：从后端获取真实路径和下载链接
+                        const result = await this.pollForDownloadUrl(data.task_id, task);
+                        if (!result) return;
 
                         // 【核心】智能判断：支持 API 且文件 < 2GB
                         if (window.showSaveFilePicker) {
-                            await this.streamDownload(downloadUrl, task.name, task);
+                            // 传入真实路径以便清理
+                            await this.streamDownload(result.url, task.name, task, result.path);
                         } else {
-                            this.fallbackToNative(task, downloadUrl);
+                            this.fallbackToNative(task, result.url);
                         }
                     } catch (e) { task.status = 'error'; task.statusText = '请求失败'; console.error(e); }
                 },
@@ -679,20 +652,26 @@
                         const timer = setInterval(async () => {
                             try {
                                 const res = await fetch(`/api/status/${taskId}`); const data = await res.json();
-                                if (data.state === 'SUCCESS') { clearInterval(timer); task.statusText = '准备下载...'; resolve(`/api/download_result?file=${encodeURIComponent(data.result.result)}`); } 
+                                if (data.state === 'SUCCESS') { 
+                                    clearInterval(timer); 
+                                    task.statusText = '准备下载...'; 
+                                    // 修正：返回对象包含 url 和 真实文件路径 (result.result 是后端返回的文件路径)
+                                    resolve({ 
+                                        url: `/api/download_result?file=${encodeURIComponent(data.result.result)}`,
+                                        path: data.result.result 
+                                    }); 
+                                } 
                                 else if (data.state === 'FAILURE') { clearInterval(timer); task.status = 'error'; resolve(null); }
                             } catch (e) { clearInterval(timer); task.status = 'error'; resolve(null); }
                         }, 1000);
                     });
                 },
-                async streamDownload(url, filename, task) {
+                async streamDownload(url, filename, task, cleanupPath) {
                     try {
-                        // 1. 发起请求获取头部信息
                         const response = await fetch(url);
                         const totalStr = response.headers.get('Content-Length');
                         const total = totalStr ? parseInt(totalStr, 10) : 0;
 
-                        // 【核心】如果大于 2GB (2 * 1024 * 1024 * 1024)，直接回退到原生下载
                         if (total > 2147483648) {
                             console.log("文件过大 (>2GB)，切换回原生下载");
                             if(task.cancelReader) task.cancelReader();
@@ -700,7 +679,6 @@
                             return;
                         }
 
-                        // 2. 正常流式流程
                         const handle = await window.showSaveFilePicker({ suggestedName: filename });
                         const writable = await handle.createWritable();
                         task.status = 'downloading';
@@ -719,13 +697,24 @@
                             if (total) { const percent = (loaded / total) * 100; task.progress = percent; task.statusText = Math.round(percent) + '%'; } else { task.statusText = this.formatSize(loaded); }
                         }
                         await writable.close();
+                        
+                        // 【核心新增】下载成功后，发送请求彻底删除服务器上的临时文件
+                        if (cleanupPath) {
+                            console.log("Cleaning up temp file:", cleanupPath);
+                            // 这里复用 /api/delete 接口，它支持传入文件路径列表
+                            await fetch('/api/delete', { 
+                                method: 'POST', 
+                                headers: {'Content-Type': 'application/json'}, 
+                                body: JSON.stringify({ files: [cleanupPath] }) 
+                            });
+                        }
+
                         task.progress = 100; task.status = 'success'; task.statusText = '完成'; task.speedText = ''; this.completeTask(task);
                     } catch (err) {
                         console.error(err);
                         if (err.name === 'AbortError') { task.status = 'error'; task.statusText = '已取消'; }
                         else if (err.name === 'NotAllowedError') { const idx = this.transferList.indexOf(task); if (idx > -1) this.transferList.splice(idx, 1); }
                         else { 
-                            // 出错回退
                             this.fallbackToNative(task, url); 
                         }
                     }
