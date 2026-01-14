@@ -9,21 +9,21 @@
 
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: #f5f7fa; height: 100vh; overflow: hidden; }
-
+        
         /* 侧边栏选中态 */
         .nav-item.active { background-color: #e6f7ff; color: #1890ff; border-right: 3px solid #1890ff; }
         .nav-item { border-right: 3px solid transparent; transition: all 0.2s; }
 
         /* 宫格卡片样式 */
-        .grid-card {
-            border: 1px solid transparent;
+        .grid-card { 
+            border: 1px solid transparent; 
             border-radius: 12px;
             transition: all 0.15s;
         }
         .grid-card:hover { background-color: #f0f5ff; }
-        .grid-card.selected {
-            background-color: #f0f9ff;
-            border-color: #1890ff;
+        .grid-card.selected { 
+            background-color: #f0f9ff; 
+            border-color: #1890ff; 
         }
         .check-icon { display: none; }
         .grid-card.selected .check-icon { display: flex; }
@@ -31,9 +31,9 @@
 
         /* 抽屉与遮罩 */
         .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 40; }
-        .drawer {
-            position: fixed; right: 0; top: 0; bottom: 0; width: 400px;
-            background: white; z-index: 50;
+        .drawer { 
+            position: fixed; right: 0; top: 0; bottom: 0; width: 400px; 
+            background: white; z-index: 50; 
             box-shadow: -5px 0 15px rgba(0,0,0,0.05);
             transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex; flex-direction: column;
@@ -42,13 +42,13 @@
 
         /* Toast 提示 */
         .toast-container { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 100; pointer-events: none; }
-        .toast {
-            background: rgba(0, 0, 0, 0.8); color: white; padding: 10px 24px; border-radius: 99px;
+        .toast { 
+            background: rgba(0, 0, 0, 0.8); color: white; padding: 10px 24px; border-radius: 99px; 
             box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 14px; margin-bottom: 10px;
             opacity: 0; transform: translateY(-20px); transition: all 0.3s;
         }
         .toast.show { opacity: 1; transform: translateY(0); }
-
+        
         /* 按钮通用样式 */
         .btn-pill {
             height: 34px;
@@ -105,6 +105,9 @@
                     <i class="fa-solid fa-user-astronaut"></i>
                 </div>
                 <h3 class="font-bold text-gray-800 text-lg">小龙女她爸</h3>
+                <div class="mt-3">
+                    <a href="/logout" class="text-xs text-red-400 hover:text-red-600 border border-red-200 rounded px-2 py-1">退出登录</a>
+                </div>
             </div>
 
             <nav class="flex-1 space-y-1 mt-2 overflow-y-auto">
@@ -118,9 +121,9 @@
                     </div>
                     传输列表
                 </a>
-
+                
                 <div class="mt-4 px-6 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">智能分类</div>
-
+                
                 <a href="#" @click="switchCategory('image')" :class="{'active': currentTab === 'category' && currentCategory === 'image'}" class="nav-item flex items-center px-6 py-2 text-sm font-medium text-gray-600 hover:text-blue-500 hover:bg-gray-50">
                     <i class="fa-solid fa-image w-6 text-center mr-2 text-blue-400"></i> 我的图片
                 </a>
@@ -159,9 +162,9 @@
         </div>
 
         <div class="flex-1 flex flex-col bg-white overflow-hidden relative">
-
+            
             <div class="h-16 border-b border-gray-100 flex items-center justify-between px-6 bg-white z-10">
-
+                
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center border border-gray-200 rounded-full bg-white h-8">
                         <button @click="goUp" :disabled="!path || currentTab !== 'files'" class="px-3 h-full hover:bg-gray-50 rounded-l-full text-gray-500 disabled:opacity-30 transition">
@@ -189,7 +192,7 @@
                             <button @click="downloadSelected" class="btn-pill">
                                 <i class="fa-solid fa-download"></i> 下载
                             </button>
-
+                            
                             <div class="relative" @click.stop>
                                 <button class="btn-pill" @click="showMoreMenu = !showMoreMenu">
                                     更多 <i class="fa-solid fa-caret-down ml-2 text-xs"></i>
@@ -217,13 +220,13 @@
                 <div class="flex items-center space-x-4">
                     <div class="relative group">
                         <i class="fa-solid fa-magnifying-glass absolute left-3 top-2 text-gray-400 text-xs group-focus-within:text-blue-500 transition-colors"></i>
-                        <input type="text" v-model="searchQuery" placeholder="搜索"
+                        <input type="text" v-model="searchQuery" placeholder="搜索" 
                                class="pl-8 pr-8 py-1.5 bg-gray-100 rounded-full text-sm focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-200 outline-none w-48 transition-all hover:bg-gray-200 focus:w-64">
                         <button v-if="searchQuery" @click="searchQuery = ''" class="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600">
                             <i class="fa-solid fa-circle-xmark text-sm"></i>
                         </button>
                     </div>
-
+                    
                     <div class="flex items-center bg-gray-100 rounded-lg p-1 ml-2">
                         <button @click="viewMode = 'list'" :class="{'bg-white text-gray-800 shadow-sm': viewMode === 'list'}" class="w-8 h-7 rounded-md flex items-center justify-center transition text-sm text-gray-400">
                             <i class="fa-solid fa-bars"></i>
@@ -261,9 +264,9 @@
 
                     <div class="text-xs text-gray-500 mr-2" v-if="files.length > 0">
                         <label class="flex items-center cursor-pointer hover:text-gray-700 select-none">
-                            <input type="checkbox" class="mr-2 rounded text-blue-600 focus:ring-0"
+                            <input type="checkbox" class="mr-2 rounded text-blue-600 focus:ring-0" 
                                    :checked="files.length > 0 && selectedFiles.length === files.length"
-                                   @click.prevent="toggleSmartSelect">
+                                   @click.prevent="toggleSmartSelect"> 
                             全选
                         </label>
                     </div>
@@ -362,7 +365,7 @@
                         <i class="fa-solid fa-share-nodes text-5xl text-blue-200 mb-4"></i>
                         <p>暂无分享记录</p>
                     </div>
-
+                    
                     <div v-else class="w-full">
                         <table class="w-full text-left border-collapse">
                             <thead class="text-xs text-gray-400 border-b border-gray-100">
@@ -417,8 +420,21 @@
                 <div v-if="transferTab === 'active'">
                     <div v-if="activeTransfers.length === 0" class="text-center mt-20 text-gray-300 text-sm">暂无进行中的任务</div>
                     <div v-for="(task, index) in activeTransfers" :key="index" class="p-4 border-b border-gray-50">
-                        <div class="flex justify-between mb-2"><div class="text-sm font-medium text-gray-700 truncate w-48">[[ task.name ]]</div><div class="text-xs text-blue-500">[[ task.statusText ]]</div></div>
-                        <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden"><div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{width: task.progress + '%'}"></div></div>
+                        <div class="flex justify-between mb-2">
+                            <div class="text-sm font-medium text-gray-700 truncate w-40" :title="task.name">[[ task.name ]]</div>
+                            <div class="flex items-center space-x-3">
+                                <span v-if="task.status === 'uploading' && task.speedText" class="text-xs text-gray-400">[[ task.speedText ]]</span>
+                                <span class="text-xs" :class="task.status === 'error' ? 'text-red-500' : 'text-blue-500'">[[ task.statusText ]]</span>
+                                <button @click="cancelTask(task)" class="text-gray-400 hover:text-red-500 transition" title="取消/删除">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div class="h-1.5 rounded-full transition-all duration-300" 
+                                 :class="task.status === 'error' ? 'bg-red-400' : 'bg-blue-500'" 
+                                 :style="{width: task.progress + '%'}"></div>
+                        </div>
                     </div>
                 </div>
                 <div v-else>
@@ -442,9 +458,9 @@
                     files: [], selectedFiles: [], path: '',
                     usage: {used: '0 B', total: '0 B', percent: 0},
                     loading: false,
-                    viewMode: 'grid',
-                    currentTab: 'files', // files, trash, shares, category
-                    currentCategory: '', // image, video, doc, app
+                    viewMode: 'grid', 
+                    currentTab: 'files', 
+                    currentCategory: '', 
                     searchQuery: '',
                     showTransferDrawer: false, transferTab: 'active',
                     transferList: [], transferHistory: [],
@@ -454,13 +470,13 @@
             },
             computed: {
                 currentFolderName() { if (!this.path) return ''; const parts = this.path.split('/'); return parts[parts.length - 1]; },
-                filteredFiles() {
-                    if (!this.searchQuery) return this.files;
-                    const lowerQuery = this.searchQuery.toLowerCase();
-                    return this.files.filter(file => file.name.toLowerCase().includes(lowerQuery));
+                filteredFiles() { 
+                    if (!this.searchQuery) return this.files; 
+                    const lowerQuery = this.searchQuery.toLowerCase(); 
+                    return this.files.filter(file => file.name.toLowerCase().includes(lowerQuery)); 
                 },
-                activeTransfers() { return this.transferList.filter(t => t.status === 'uploading' || t.status === 'processing'); },
-                activeTransferCount() { return this.activeTransfers.length; }
+                activeTransfers() { return this.transferList.filter(t => t.status === 'uploading' || t.status === 'processing' || t.status === 'error'); },
+                activeTransferCount() { return this.activeTransfers.filter(t => t.status === 'uploading' || t.status === 'processing').length; }
             },
             mounted() { this.loadFiles(); this.loadHistory(); },
             methods: {
@@ -475,28 +491,26 @@
                 },
                 async loadFiles(newPath = '') {
                     this.loading = true; this.selectedFiles = []; this.searchQuery = '';
-
+                    
                     if (this.currentTab === 'files') {
                         this.path = newPath;
-                        try { const res = await fetch(`/api/list?path=${encodeURIComponent(newPath)}`); const data = await res.json(); this.files = data.files; this.usage = data.usage; } catch (e) { console.error(e); }
-                    }
+                        try { const res = await fetch(`/api/list?path=${encodeURIComponent(newPath)}`); const data = await res.json(); this.files = data.files; this.usage = data.usage; } catch (e) { console.error(e); } 
+                    } 
                     else if (this.currentTab === 'category') {
                         try { const res = await fetch(`/api/category?type=${this.currentCategory}`); const data = await res.json(); this.files = data.files; this.usage = data.usage; } catch (e) { console.error(e); }
                     }
                     else if (this.currentTab === 'trash') {
                         try { const res = await fetch('/api/trash/list'); const data = await res.json(); this.files = data; } catch (e) { console.error(e); }
-                    }
+                    } 
                     else if (this.currentTab === 'shares') {
-                        // 新增：加载分享列表
                         try { const res = await fetch('/api/share/list'); const data = await res.json(); this.files = data; } catch (e) { console.error(e); }
                     }
                     this.loading = false;
                 },
                 goUp() { if(!this.path) return; const parts = this.path.split('/'); parts.pop(); this.loadFiles(parts.join('/')); },
                 handleFileClick(file, event) {
-                    // 分类模式和回收站模式下，点击只能选中
                     if(this.currentTab === 'trash' || this.currentTab === 'category') { this.toggleSelect(this.currentTab === 'trash' ? file.id : file.path); return; }
-
+                    
                     if (this.viewMode === 'grid') { if (file.is_dir) this.loadFiles(file.path); else this.toggleSelect(file.path); }
                     else { if(file.is_dir) this.loadFiles(file.path); else this.toggleSelect(file.path); }
                 },
@@ -507,9 +521,8 @@
                 toggleSmartSelect() {
                     const total = this.files.length;
                     const selected = this.selectedFiles.length;
-                    if (selected < total) {
-                        // 注意：回收站用id，其他用path
-                        this.selectedFiles = this.files.map(f => this.currentTab === 'trash' ? f.id : f.path);
+                    if (selected < total) { 
+                        this.selectedFiles = this.files.map(f => this.currentTab === 'trash' ? f.id : f.path); 
                     } else { this.selectedFiles = []; }
                 },
                 async createFolder() {
@@ -518,12 +531,11 @@
                     const res = await fetch('/api/mkdir', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: this.path, name: name }) });
                     if (res.ok) { this.showToast("文件夹创建成功"); this.loadFiles(this.path); } else { const err = await res.json(); alert("创建失败: " + err.error); }
                 },
-
-                // --- 分享相关 (核心逻辑) ---
+                
                 async shareSelected() {
                     const count = this.selectedFiles.length;
                     if (count === 0) return;
-
+                    
                     const res = await fetch('/api/share/create', {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ files: this.selectedFiles })
@@ -546,10 +558,9 @@
                         body: JSON.stringify({ id: shareId })
                     });
                     this.showToast("分享已取消");
-                    this.loadFiles(); // 刷新列表
+                    this.loadFiles();
                 },
 
-                // --- 更多操作 ---
                 async handleMoreAction(action) {
                     this.showMoreMenu = false;
                     const count = this.selectedFiles.length;
@@ -599,15 +610,93 @@
                     Array.from(files).forEach(file => this.uploadOneFile(file));
                     event.target.value = '';
                 },
+                
+                // 格式化网速函数
+                formatSpeed(bytesPerSecond) {
+                    if (bytesPerSecond === 0) return '0 KB/s';
+                    const k = 1024;
+                    const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+                    const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k));
+                    return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+                },
+
                 uploadOneFile(file) {
-                    const task = { name: file.name, progress: 0, status: 'uploading', statusText: '等待中...', type: 'upload', startTime: new Date().getTime() };
+                    const task = { 
+                        name: file.name, 
+                        progress: 0, 
+                        status: 'uploading', 
+                        statusText: '等待中...', 
+                        type: 'upload', 
+                        startTime: new Date().getTime(),
+                        xhr: null,
+                        lastLoaded: 0,
+                        lastTime: new Date().getTime(),
+                        speedText: ''
+                    };
                     this.transferList.unshift(task);
-                    const formData = new FormData(); formData.append('file', file); formData.append('path', this.path);
+                    
+                    const formData = new FormData(); 
+                    formData.append('file', file); 
+                    formData.append('path', this.path);
+                    
                     const xhr = new XMLHttpRequest();
-                    xhr.upload.onprogress = (e) => { if (e.lengthComputable) { const percent = (e.loaded / e.total) * 100; task.progress = percent; task.statusText = Math.round(percent) + '%'; } };
-                    xhr.onload = () => { if (xhr.status === 200) { task.progress = 100; task.status = 'success'; this.completeTask(task); this.loadFiles(this.path); } else { task.status = 'error'; task.statusText = '失败'; } };
-                    xhr.onerror = () => { task.status = 'error'; task.statusText = '网络错误'; };
-                    xhr.open('POST', '/api/upload', true); xhr.send(formData);
+                    task.xhr = xhr; // 保存引用，用于取消
+
+                    xhr.upload.onprogress = (e) => { 
+                        if (e.lengthComputable) { 
+                            const now = new Date().getTime();
+                            // 计算网速 (每500ms更新一次，防止闪烁)
+                            if (now - task.lastTime >= 500) {
+                                const diffLoaded = e.loaded - task.lastLoaded;
+                                const diffTime = (now - task.lastTime) / 1000; // 秒
+                                const speed = diffLoaded / diffTime;
+                                task.speedText = this.formatSpeed(speed);
+                                
+                                task.lastLoaded = e.loaded;
+                                task.lastTime = now;
+                            }
+
+                            const percent = (e.loaded / e.total) * 100; 
+                            task.progress = percent; 
+                            task.statusText = Math.round(percent) + '%'; 
+                        } 
+                    };
+                    xhr.onload = () => { 
+                        if (xhr.status === 200) { 
+                            task.progress = 100; 
+                            task.status = 'success'; 
+                            task.speedText = ''; // 完成后隐藏速度
+                            this.completeTask(task); 
+                            this.loadFiles(this.path); 
+                        } else { 
+                            task.status = 'error'; 
+                            task.statusText = '失败'; 
+                        } 
+                    };
+                    xhr.onerror = () => { 
+                        task.status = 'error'; 
+                        task.statusText = '网络错误'; 
+                    };
+                    // 如果被手动 abort，会触发 abort 事件
+                    xhr.onabort = () => {
+                        task.status = 'error'; 
+                        task.statusText = '已取消';
+                    };
+
+                    xhr.open('POST', '/api/upload', true); 
+                    xhr.send(formData);
+                },
+                cancelTask(task) {
+                    // 如果正在上传，先中断网络请求
+                    if (task.status === 'uploading' && task.xhr) {
+                        task.xhr.abort();
+                    }
+                    
+                    // 从列表中移除
+                    const index = this.transferList.indexOf(task);
+                    if (index > -1) {
+                        this.transferList.splice(index, 1);
+                    }
                 },
                 async downloadSelected() {
                     if(this.selectedFiles.length === 0) return;
