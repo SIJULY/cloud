@@ -134,7 +134,7 @@
             text-align: center; color: #2563eb;
         }
 
-        /* 【新增】顶部微型加载条 (解决切换卡顿感) */
+        /* 顶部微型加载条 */
         .loading-bar {
             position: fixed; top: 0; left: 0; height: 3px; background: #3b82f6; z-index: 9999;
             transition: width 0.2s; box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
@@ -539,7 +539,7 @@
                     result = result.filter(f => !f.name.startsWith('批量下载') && !f.name.match(/^batch_download_.*\.zip$/));
                     return result;
                 },
-                activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error', 'pending'].includes(t.status)); },
+                activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error'].includes(t.status)); },
                 activeTransferCount() { return this.activeTransfers.filter(t => t.status !== 'error').length; }
             },
             mounted() { 
@@ -560,12 +560,19 @@
                     if (this.files.length === 0) this.loading = true;
                     this.isFetching = true;
                     this.selectedFiles = []; this.searchQuery = '';
+                    
+                    // 【核心修改】防缓存时间戳
+                    const ts = new Date().getTime();
+                    
                     try {
                         let url = '';
-                        if (this.currentTab === 'files') { this.path = newPath; url = `/api/list?path=${encodeURIComponent(newPath)}`; }
-                        else if (this.currentTab === 'category') url = `/api/category?type=${this.currentCategory}`;
-                        else if (this.currentTab === 'trash') url = '/api/trash/list';
-                        else if (this.currentTab === 'shares') url = '/api/share/list';
+                        if (this.currentTab === 'files') { 
+                            this.path = newPath; 
+                            url = `/api/list?path=${encodeURIComponent(newPath)}&_t=${ts}`; 
+                        }
+                        else if (this.currentTab === 'category') url = `/api/category?type=${this.currentCategory}&_t=${ts}`;
+                        else if (this.currentTab === 'trash') url = `/api/trash/list?_t=${ts}`;
+                        else if (this.currentTab === 'shares') url = `/api/share/list?_t=${ts}`;
                         
                         const res = await fetch(url); const data = await res.json();
                         // 数据返回后，瞬间替换，用户无感知
