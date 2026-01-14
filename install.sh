@@ -8,7 +8,6 @@ PLAIN="\033[0m"
 
 APP_NAME="my-cloud-drive"
 INSTALL_DIR="/opt/$APP_NAME"
-# 请替换为你自己的 GitHub 仓库地址
 REPO_URL="https://github.com/SIJULY/cloud.git"
 
 check_root() {
@@ -41,9 +40,11 @@ install_app() {
     check_root; check_env
     echo -e "${GREEN}=== 开始安装 ${APP_NAME} ===${PLAIN}"
 
+    # 强制清理旧目录，防止 git clone 失败
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}清理旧安装...${PLAIN}"
         cd "$INSTALL_DIR" && docker-compose down >/dev/null 2>&1
+        cd ..
         rm -rf "$INSTALL_DIR"
     fi
 
@@ -78,6 +79,7 @@ install_app() {
       - \"${PORT}:${PORT}\""
     fi
 
+    # 动态生成 docker-compose.yml
     cat > docker-compose.yml <<EOF
 version: '3.8'
 services:
@@ -117,7 +119,8 @@ ${CADDY_PORTS}
       - app
 EOF
 
-    echo -e "${YELLOW}构建并启动...${PLAIN}"
+    echo -e "${YELLOW}正在构建并启动容器 (这可能需要几分钟)...${PLAIN}"
+    # 关键：使用 --build 强制本地构建
     docker-compose up -d --build
 
     if [ $? -eq 0 ]; then
