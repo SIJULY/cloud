@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  app:
+    # 构建当前目录下的 Dockerfile
+    build: .
+    # 镜像名称（构建后标记为这个名字）
+    image: my-cloud-drive:latest
+    container_name: my-cloud-drive-app
+    restart: always
+    # 环境变量（支持从 .env 文件读取，如果没有则使用默认值）
+    environment:
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASS=${ADMIN_PASS:-admin123}
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_PATH=/app/storage
+      - TRASH_PATH=/app/trash
+      - SHARE_PATH=/app/shares
+    # 数据持久化挂载
+    volumes:
+      - ./data/storage:/app/storage
+      - ./data/trash:/app/trash
+      - ./data/shares:/app/shares
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    container_name: my-cloud-drive-redis
+    restart: always
+
+  caddy:
+    image: caddy:alpine
+    container_name: my-cloud-drive-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    # 挂载 Caddy 配置文件和证书数据
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+    depends_on:
+      - app
