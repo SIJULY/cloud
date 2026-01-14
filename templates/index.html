@@ -133,8 +133,8 @@
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
             text-align: center; color: #2563eb;
         }
-        
-        /* 顶部微型加载条 */
+
+        /* 顶部微型加载条 (解决切换卡顿感) */
         .loading-bar {
             position: fixed; top: 0; left: 0; height: 3px; background: #3b82f6; z-index: 9999;
             transition: width 0.2s; box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
@@ -145,7 +145,7 @@
 
     <div id="app" class="flex w-full h-full relative" 
          @click="closeMenu" 
-         @contextmenu.prevent="" 
+         @contextmenu.prevent=""
          @dragover.prevent="onDragOver" 
          @dragleave.prevent="onDragLeave" 
          @drop.prevent="onDrop">
@@ -535,7 +535,7 @@
                         const lowerQuery = this.searchQuery.toLowerCase(); 
                         result = result.filter(file => file.name.toLowerCase().includes(lowerQuery)); 
                     }
-                    // 2. 垃圾过滤：隐藏后端生成的 "批量下载.zip" 临时文件，防止列表污染
+                    // 2. 垃圾过滤：【核心修改】隐藏后端生成的 "批量下载.zip" 临时文件，防止列表污染
                     result = result.filter(f => !f.name.startsWith('批量下载') && !f.name.match(/^batch_download_.*\.zip$/));
                     return result;
                 },
@@ -556,7 +556,7 @@
                 switchCategory(type) { this.currentTab = 'category'; this.currentCategory = type; this.loadFiles(''); },
                 
                 async loadFiles(newPath = '') {
-                    // 【无感刷新】只有第一次(files为空)才全屏转圈，之后只在顶部显示小进度条
+                    // 【核心修改】无感刷新：只有第一次(files为空)才全屏转圈，之后只在顶部显示小进度条
                     if (this.files.length === 0) this.loading = true;
                     this.isFetching = true;
                     this.selectedFiles = []; this.searchQuery = '';
