@@ -54,14 +54,29 @@ class JsonManager:
     def __init__(self, filepath):
         self.filepath = filepath
         self.load_metadata()
+        
     def load_metadata(self):
         if os.path.exists(self.filepath):
             try:
-                with open(self.filepath, 'r', encoding='utf-8') as f: self.data = json.load(f)
-            except: self.data = {}
-        else: self.data = {}
+                with open(self.filepath, 'r', encoding='utf-8') as f:
+                    self.data = json.load(f)
+            except Exception as e:
+                # 【修改】打印错误日志，而不是默默清空
+                print(f"❌ Error loading {self.filepath}: {e}")
+                # 如果文件坏了，暂时保持空，但至少后台能看到报错
+                self.data = {}
+        else:
+            self.data = {}
+            
     def save_metadata(self):
-        with open(self.filepath, 'w', encoding='utf-8') as f: json.dump(self.data, f, ensure_ascii=False, indent=2)
+        # 【修改】增加 flush 确保数据真正写入硬盘
+        try:
+            with open(self.filepath, 'w', encoding='utf-8') as f:
+                json.dump(self.data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno()) # 强制写入硬盘，防止重启丢失
+        except Exception as e:
+            print(f"❌ Error saving {self.filepath}: {e}")
 
 class TrashManager(JsonManager):
     def add_item(self, filename, original_rel_path, is_dir):
