@@ -1,82 +1,90 @@
 #!/bin/bash
 
 # ==============================================================================
-#           个人网盘 V7.1 - 旗舰修复版
+#           个人网盘 V8.0 - 终极完整版
 #
-# 修复日志:
-# 1. [交互] 修复列表右侧图标点击无反应的问题 (阻止事件冒泡)。
-# 2. [功能] "三个小点"现在会弹出菜单 (移动/重命名/删除)，复刻截图体验。
-# 3. [功能] 左侧 "我的图片" 现在可以真实工作 (全盘筛选图片)。
-# 4. [功能] 左侧 "回收站" 点击可正常跳转。
-# 5. [上传] 传输列表增加 "实时速度" 和 "剩余时间" 显示。
-# 6. [上传] 修复上传按钮偶发失效问题，增加空状态下的上传引导。
+# 包含: 全功能UI + 实时网速 + 回收站 + 图片分类 + 自动HTTPS + 批量下载
 # ==============================================================================
 
-# --- 检查 Root ---
 if [ "$(id -u)" -ne 0 ]; then echo -e "\033[31m必须使用 Root 运行\033[0m"; exit 1; fi
 
-# --- 0. 菜单 ---
 clear
 echo -e "\033[34m=====================================================\033[0m"
-echo -e "\033[34m       个人网盘 V7.1 (交互修复版) 部署脚本         \033[0m"
+echo -e "\033[34m       个人网盘 V8.0 (终极完整版) 部署脚本           \033[0m"
 echo -e "\033[34m=====================================================\033[0m"
-echo "1. 安装 / 升级 (保留数据)"
-echo "2. 卸载"
-read -p "选择: " ACTION
+echo "1. 全新安装 / 升级 (数据不会丢失)"
+echo "2. 卸载清理"
+read -p "请选择 [1-2]: " ACTION
 
+# --- 卸载逻辑 ---
 if [ "$ACTION" == "2" ]; then
+    echo "正在停止服务..."
     systemctl stop my_cloud_drive caddy 2>/dev/null
+    systemctl disable my_cloud_drive caddy 2>/dev/null
     rm -f /etc/systemd/system/my_cloud_drive.service /etc/caddy/Caddyfile
     rm -rf /var/www/my_cloud_drive
-    echo "已卸载程序 (数据保留在 /home/*/my_files)"
+    echo -e "\033[32m已卸载程序文件。\033[0m"
+    echo "您的数据保留在: /home/*/my_files"
     exit 0
 fi
 
-# --- 1. 配置信息 (自动获取) ---
+# --- 配置信息 ---
+# 1. 自动探测或询问用户名
 OLD_USER=$(ls -ld /home/*/my_files 2>/dev/null | awk '{print $3}' | head -n 1)
 if [ -n "$OLD_USER" ]; then
-    echo -e "\033[32m检测到已有用户: $OLD_USER，自动沿用...\033[0m"
+    echo -e "\033[32m检测到老用户: $OLD_USER，自动沿用...\033[0m"
     NEW_USERNAME=$OLD_USER
 else
-    read -p "系统用户名 (例: auser): " NEW_USERNAME
+    read -p "请输入系统用户名 (例如: auser): " NEW_USERNAME
     if ! id "$NEW_USERNAME" &>/dev/null; then
         adduser --disabled-password --gecos "" "$NEW_USERNAME" >/dev/null
     fi
 fi
 
-# 获取域名
-OLD_DOMAIN=$(grep "server_name" /etc/nginx/sites-available/my_cloud_drive 2>/dev/null | awk '{print $2}' | sed 's/;//')
-[ -z "$OLD_DOMAIN" ] && OLD_DOMAIN=$(grep "^\S\+" /etc/caddy/Caddyfile 2>/dev/null | head -n 1 | sed 's/{//')
-if [ -n "$OLD_DOMAIN" ]; then DOMAIN_OR_IP=$OLD_DOMAIN; else read -p "请输入域名/IP: " DOMAIN_OR_IP; fi
+# 2. 自动探测或询问域名
+OLD_DOMAIN=$(grep "^\S\+" /etc/caddy/Caddyfile 2>/dev/null | head -n 1 | sed 's/{//')
+if [ -n "$OLD_DOMAIN" ]; then
+    echo -e "\033[32m检测到旧配置域名: $OLD_DOMAIN\033[0m"
+    DOMAIN_OR_IP=$OLD_DOMAIN
+else
+    read -p "请输入域名或IP: " DOMAIN_OR_IP
+fi
 
-echo -e "正在设置应用密码..."
+# 3. 设置密码
 APP_USERNAME="admin"
-read -sp "设置网盘登录密码: " APP_PASSWORD; echo
+echo -e "默认网盘账号: admin"
+read -sp "请设置网盘登录密码: " APP_PASSWORD; echo
 
-# --- 2. 环境安装 ---
+# --- 环境安装 ---
+echo -e "\n\033[33m>>> 1. 安装系统依赖...\033[0m"
 apt-get update -y >/dev/null 2>&1
 apt-get install -y python3-pip python3-dev python3-venv debian-keyring debian-archive-keyring apt-transport-https curl gnupg zip >/dev/null 2>&1
 
+# 强制重装 Caddy 确保 Key 正确
 if ! command -v caddy &> /dev/null; then
+    echo "安装 Caddy..."
     rm -f /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
     curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-    apt-get update >/dev/null 2>&1; apt-get install -y caddy >/dev/null 2>&1
+    apt-get update >/dev/null 2>&1
+    apt-get install -y caddy >/dev/null 2>&1
 fi
 
-# --- 3. 部署后端 (V7.1: 增加图片筛选逻辑) ---
-echo -e "\033[33m>>> 部署后端 V7.1...\033[0m"
+# --- 部署后端 ---
+echo -e "\033[33m>>> 2. 部署 Python 后端...\033[0m"
 PROJECT_DIR="/var/www/my_cloud_drive"
 DRIVE_ROOT_DIR="/home/${NEW_USERNAME}/my_files"
-TRASH_DIR="${DRIVE_ROOT_DIR}/.trash"
-mkdir -p "$PROJECT_DIR" "$DRIVE_ROOT_DIR" "$TRASH_DIR"
+mkdir -p "$PROJECT_DIR" "$DRIVE_ROOT_DIR" "${DRIVE_ROOT_DIR}/.trash" "${DRIVE_ROOT_DIR}/.temp_uploads"
 chown -R "$NEW_USERNAME:$NEW_USERNAME" "$PROJECT_DIR" "$DRIVE_ROOT_DIR"
 
-if [ ! -d "${PROJECT_DIR}/venv" ]; then su - "$NEW_USERNAME" -c "cd $PROJECT_DIR && python3 -m venv venv"; fi
+if [ ! -d "${PROJECT_DIR}/venv" ]; then
+    su - "$NEW_USERNAME" -c "cd $PROJECT_DIR && python3 -m venv venv"
+fi
 su - "$NEW_USERNAME" -c "source ${PROJECT_DIR}/venv/bin/activate && pip install Flask Gunicorn" >/dev/null 2>&1
 
 APP_SECRET_KEY=$(openssl rand -hex 32)
 
+# 写入完整功能的 app.py
 cat << EOF > "${PROJECT_DIR}/app.py"
 import os, json, uuid, shutil, time, zipfile
 from functools import wraps
@@ -131,10 +139,10 @@ def logout(): session.pop('user',None); return redirect('/login')
 @app.route('/<path:req_path>')
 @login_required
 def index(req_path):
-    category = request.args.get('category') # 获取分类参数
+    category = request.args.get('category')
     search_query = request.args.get('q')
     
-    # --- 1. 图片智能分类模式 ---
+    # 图片分类模式
     if category == 'images':
         results = []
         for root, dirs, files in os.walk(DRIVE_ROOT):
@@ -148,11 +156,11 @@ def index(req_path):
                         'size': format_bytes(os.path.getsize(full_path)),
                         'mtime': time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(full_path)))
                     })
-        results.sort(key=lambda x: x['mtime'], reverse=True) # 按时间倒序
+        results.sort(key=lambda x: x['mtime'], reverse=True)
         used, total, pct = get_disk_usage()
         return render_template('files.html', items=results, current_path='我的图片', used=used, total=total, percent=pct, mode='filter')
 
-    # --- 2. 搜索模式 ---
+    # 搜索模式
     if search_query:
         results = []
         for root, dirs, files in os.walk(DRIVE_ROOT):
@@ -170,11 +178,10 @@ def index(req_path):
         used, total, pct = get_disk_usage()
         return render_template('files.html', items=results, current_path='搜索结果', used=used, total=total, percent=pct, mode='filter')
 
-    # --- 3. 普通目录浏览 ---
+    # 普通模式
     abs_path = os.path.join(DRIVE_ROOT, req_path)
     if not os.path.exists(abs_path): return "路径不存在", 404
     
-    # 如果请求的是文件，直接下载
     if os.path.isfile(abs_path):
         return send_from_directory(os.path.dirname(abs_path), os.path.basename(abs_path))
 
@@ -189,11 +196,8 @@ def index(req_path):
                 ext = name.lower().split('.')[-1]
                 if ext in ['jpg','png','jpeg','gif']: ftype='image'
                 elif ext in ['mp4','mov','avi','mkv']: ftype='video'
-                elif ext in ['pdf']: ftype='pdf'
                 elif ext in ['zip','rar','7z','tar','gz']: ftype='zip'
                 elif ext in ['doc','docx','xls','xlsx','ppt','pptx']: ftype='doc'
-                elif ext in ['apk','ipa']: ftype='android'
-            
             items.append({
                 'name': name, 'is_dir': is_dir, 'type': ftype,
                 'size': '-' if is_dir else format_bytes(os.path.getsize(full)),
@@ -210,7 +214,6 @@ def index(req_path):
 def operate():
     data = request.get_json(); action = data.get('action')
     paths = data.get('paths', [data.get('path')])
-    
     try:
         if action == 'mkdir':
             os.makedirs(os.path.join(DRIVE_ROOT, data.get('path'), data.get('name')))
@@ -218,19 +221,17 @@ def operate():
             for p in paths:
                 src = os.path.join(DRIVE_ROOT, p)
                 if not os.path.exists(src): continue
-                # 如果已经在回收站，则物理删除；否则移入回收站
-                if '.trash' in src:
-                     shutil.rmtree(src) if os.path.isdir(src) else os.remove(src)
-                else:
-                     shutil.move(src, os.path.join(TRASH_DIR, os.path.basename(p) + "_" + str(int(time.time()))))
+                if '.trash' in src: # 在回收站内则物理删除
+                    shutil.rmtree(src) if os.path.isdir(src) else os.remove(src)
+                else: # 否则移入回收站
+                    shutil.move(src, os.path.join(TRASH_DIR, os.path.basename(p) + "_" + str(int(time.time()))))
         elif action == 'rename':
             src = os.path.join(DRIVE_ROOT, data.get('path'))
             dst = os.path.join(os.path.dirname(src), data.get('new_name'))
             os.rename(src, dst)
         elif action == 'move':
             dest_dir = os.path.join(DRIVE_ROOT, data.get('dest'))
-            for p in paths:
-                shutil.move(os.path.join(DRIVE_ROOT, p), dest_dir)
+            for p in paths: shutil.move(os.path.join(DRIVE_ROOT, p), dest_dir)
         elif action == 'batch_download':
             zname = f"download_{int(time.time())}.zip"
             zpath = os.path.join(TEMP_DIR, zname)
@@ -269,13 +270,16 @@ def up_chunk():
 
 if __name__ == '__main__': app.run()
 EOF
+
+# 创建 wsgi 入口
 echo "from app import app" > "${PROJECT_DIR}/wsgi.py"
 echo 'if __name__ == "__main__": app.run()' >> "${PROJECT_DIR}/wsgi.py"
 
-# --- 4. 部署前端 (V7.1: 修复点击、增加菜单、增加速度显示) ---
-echo -e "\033[33m>>> 部署前端 V7.1...\033[0m"
+# --- 部署前端 ---
+echo -e "\033[33m>>> 3. 部署前端资源 (High-End UI)...\033[0m"
 mkdir -p "${PROJECT_DIR}/templates"
 
+# 1. 主界面 HTML (包含 CSS 和 JS)
 cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -318,20 +322,16 @@ cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
         .action-btn { color: #666; font-size: 16px; padding: 4px; border-radius: 4px; }
         .action-btn:hover { background: #dcefff; color: var(--primary-color); }
         
-        /* 弹出菜单 */
         .popover-menu { position: fixed; background: #fff; border: 1px solid #eee; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-radius: 8px; z-index: 1000; width: 120px; display: none; padding: 5px 0; }
-        .popover-item { padding: 8px 15px; font-size: 13px; cursor: pointer; color: #333; }
+        .popover-item { padding: 8px 15px; font-size: 13px; cursor: pointer; }
         .popover-item:hover { background: #f5f5f5; color: var(--primary-color); }
 
-        /* 传输面板 */
         #task-panel { position: fixed; bottom: 20px; right: 20px; width: 340px; background: #fff; box-shadow: 0 5px 20px rgba(0,0,0,0.15); border-radius: 8px; z-index: 999; display: none; }
         .task-header { padding: 12px; border-bottom: 1px solid #eee; font-weight: bold; display: flex; justify-content: space-between; }
         .task-list { max-height: 250px; overflow-y: auto; }
         .task-item { padding: 10px; border-bottom: 1px solid #f9f9f9; font-size: 12px; }
         .task-info { display: flex; justify-content: space-between; color: #666; margin-bottom: 4px; }
         .task-speed { font-size: 11px; color: #999; }
-        
-        /* 引导页 */
         .empty-state { text-center; margin-top: 100px; color: #999; }
         .empty-btn { margin-top: 20px; padding: 10px 30px; border-radius: 30px; background: #f0faff; color: var(--primary-color); border: 1px solid var(--primary-color); cursor: pointer; }
     </style>
@@ -354,7 +354,7 @@ cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
 <div class="main-content" id="drop-zone">
     <div class="top-bar">
         <div class="d-flex align-items-center gap-2">
-            {% if current_path != '.trash' and current_path != '我的图片' %}
+            {% if current_path != '.trash' and current_path != '我的图片' and current_path != '搜索结果' %}
             <button class="btn btn-primary-pill" onclick="$('#file-input').click()"><i class="bi bi-cloud-arrow-up"></i> 上传</button>
             <button class="btn btn-light-pill" onclick="createFolder()"><i class="bi bi-folder-plus"></i> 新建</button>
             <button class="btn btn-light-pill" id="btn-dl" style="display:none" onclick="batchDownload()"><i class="bi bi-download"></i> 下载选中</button>
@@ -371,7 +371,7 @@ cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
             </div>
         </div>
         <div class="search-box position-relative">
-            <input type="text" placeholder="搜索..." onkeyup="if(event.key==='Enter') location.href='/?q='+this.value">
+            <input type="text" placeholder="搜索文件..." onkeyup="if(event.key==='Enter') location.href='/?q='+this.value">
             <i class="bi bi-search position-absolute top-50 end-0 translate-middle-y me-3 text-muted"></i>
         </div>
     </div>
@@ -433,7 +433,7 @@ cat << 'EOF' > "${PROJECT_DIR}/templates/files.html"
 const CUR_PATH = '{{current_path}}';
 let activeItemPath = '';
 
-// 交互修复
+// 交互逻辑
 $('.file-row').click(function(e){
     if($(e.target).closest('.col-actions, .col-name').length) return;
     const chk = $(this).find('.file-chk'); chk.prop('checked', !chk.prop('checked')); updateBtns();
@@ -446,7 +446,7 @@ function updateBtns(){
     $('.file-chk:checked').parents('.file-row').addClass('selected');
 }
 
-// 核心功能
+// 核心
 function openItem(path, isDir){
     let final = path;
     if(CUR_PATH && CUR_PATH !== '我的图片' && CUR_PATH !== '搜索结果' && !path.includes('/')) final = CUR_PATH + '/' + path;
@@ -459,8 +459,17 @@ function batchDelete(){
     const paths = $('.file-chk:checked').map((i,el)=>$(el).parents('.file-row').data('path')).get();
     if(confirm('确认删除?')) api('delete', {paths}).then(()=>location.reload());
 }
+function batchDownload(){
+    const paths = $('.file-chk:checked').map((i,el)=>$(el).parents('.file-row').data('path')).get();
+    if(!paths.length) return;
+    $('#task-panel').show(); addTask('打包中...', 0, 'zip-task');
+    api('batch_download', {paths}).then(res=>{
+        if(res.ok) { updateTask('zip-task', 100, '完成'); window.location.href = res.url; }
+        else alert('打包失败');
+    });
+}
 
-// 更多菜单
+// 菜单
 function showMenu(e, el){
     activeItemPath = $(el).parents('.file-row').data('path');
     $('#pop-menu').css({top:e.clientY+10, left:e.clientX-100}).fadeIn(100);
@@ -472,7 +481,7 @@ function popAction(act){
     if(act==='move'){ const d=prompt("目标路径 (如 photos):"); if(d) api('move',{paths:[activeItemPath],dest:d}).then(()=>location.reload()); }
 }
 
-// 增强上传 (带速度)
+// 上传 (带速度)
 $('#file-input').change(async function(e){
     $('#task-panel').show();
     for(let f of e.target.files) await uploadOne(f);
@@ -481,7 +490,7 @@ $('#file-input').change(async function(e){
 
 async function uploadOne(file){
     const id = Date.now();
-    $('#task-list').prepend(\`<div class="task-item" id="\${id}"><div class="task-info"><span>\${file.name}</span><span class="pct">0%</span></div><div class="progress" style="height:4px"><div class="progress-bar" style="width:0%"></div></div><div class="task-speed">等待中...</div></div>\`);
+    addTask(file.name, 0, id);
     
     let uploaded = 0;
     try { uploaded = (await $.ajax({url:'/api/upload_check', type:'POST', contentType:'application/json', data:JSON.stringify({filename:file.name, totalSize:file.size, path:CUR_PATH})})).uploaded; } catch(e){}
@@ -497,11 +506,10 @@ async function uploadOne(file){
         await $.ajax({url:'/api/upload_chunk', type:'POST', data:fd, processData:false, contentType:false});
         uploaded += chunk.size;
         
-        // 计算速度
         const now = Date.now();
         const elapsed = (now - startTime) / 1000;
         if(elapsed > 0.5 || uploaded === file.size){
-            const speed = (uploaded - startLoaded) / elapsed; // bytes/s
+            const speed = (uploaded - startLoaded) / elapsed; 
             const speedStr = formatSpeed(speed);
             const remain = (file.size - uploaded) / speed;
             updateTask(id, (uploaded/file.size)*100, \`\${speedStr} - 剩 \${formatTime(remain)}\`);
@@ -510,6 +518,9 @@ async function uploadOne(file){
     updateTask(id, 100, '完成');
 }
 
+function addTask(name, pct, id){
+    $('#task-list').prepend(\`<div class="task-item" id="\${id}"><div class="task-info"><span>\${name}</span><span class="pct">\${Math.round(pct)}%</span></div><div class="progress" style="height:4px"><div class="progress-bar" style="width:\${pct}%"></div></div><div class="task-speed">等待...</div></div>\`);
+}
 function updateTask(id, pct, txt){
     const el=$('#'+id); el.find('.progress-bar').css('width', pct+'%'); el.find('.pct').text(Math.round(pct)+'%');
     if(txt) el.find('.task-speed').text(txt);
@@ -517,7 +528,6 @@ function updateTask(id, pct, txt){
 function formatSpeed(b){ if(b<1024)return b.toFixed(0)+'B/s'; if(b<1024*1024)return(b/1024).toFixed(1)+'KB/s'; return(b/1024/1024).toFixed(1)+'MB/s'; }
 function formatTime(s){ if(!isFinite(s)) return '--'; if(s<60)return s.toFixed(0)+'s'; return (s/60).toFixed(0)+'m'; }
 
-// 拖拽
 const dz = document.getElementById('drop-zone');
 dz.addEventListener('dragover', e=>{e.preventDefault(); dz.style.background='#f0faff'});
 dz.addEventListener('dragleave', e=>{e.preventDefault(); dz.style.background='#fff'});
@@ -525,20 +535,50 @@ dz.addEventListener('drop', e=>{e.preventDefault(); dz.style.background='#fff'; 
 </script></body></html>
 EOF
 
-# Login UI
+# 2. Login UI
 cat << 'EOF' > "${PROJECT_DIR}/templates/login.html"
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"><style>body{background:#f0f2f5;height:100vh;display:flex;align-items:center;justify-content:center}.card{width:360px;border:none;box-shadow:0 8px 24px rgba(0,0,0,0.1);border-radius:12px}.btn-primary{background:#06a7ff;border:none}</style></head><body><div class="card p-4"><h4 class="text-center mb-4">云盘登录</h4><form method="post"><div class="mb-3"><input type="text" name="username" class="form-control" placeholder="账号" required></div><div class="mb-3"><input type="password" name="password" class="form-control" placeholder="密码" required></div><button class="btn btn-primary w-100 py-2">立即登录</button></form></div></body></html>
 EOF
 
 chown -R "$NEW_USERNAME:$NEW_USERNAME" "$PROJECT_DIR"
 
-# --- 5. 重启服务 ---
-echo -e "\033[33m>>> 重启服务...\033[0m"
+# --- 4. 配置与启动 ---
+echo -e "\033[33m>>> 4. 生成服务配置并启动...\033[0m"
+
+# Systemd
+cat << EOF > /etc/systemd/system/my_cloud_drive.service
+[Unit]
+Description=Cloud Drive V8.0
+After=network.target
+[Service]
+User=${NEW_USERNAME}
+Group=www-data
+WorkingDirectory=${PROJECT_DIR}
+Environment="PATH=${PROJECT_DIR}/venv/bin"
+ExecStart=${PROJECT_DIR}/venv/bin/gunicorn --workers 4 --bind unix:${PROJECT_DIR}/my_cloud_drive.sock -m 007 app:app
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Caddy
+cat << EOF > /etc/caddy/Caddyfile
+${DOMAIN_OR_IP} {
+    request_body { max_size 20GB }
+    encode gzip
+    reverse_proxy unix/${PROJECT_DIR}/my_cloud_drive.sock {
+        transport http { response_header_timeout 600s }
+    }
+}
+EOF
+
+# 重载并启动
+killall gunicorn 2>/dev/null
 systemctl daemon-reload
+systemctl enable my_cloud_drive caddy
 systemctl restart my_cloud_drive caddy
 
 echo -e "\n\033[32m=============================================\033[0m"
-echo -e " ✅ V7.1 旗舰修复版 部署成功！"
+echo -e " ✅ V8.0 终极完整版 部署成功！"
 echo -e " 访问: https://${DOMAIN_OR_IP}"
-echo -e " 修复项: 按钮点击、更多菜单、图片筛选、上传速度显示"
+echo -e " 默认用户: admin"
 echo -e "\033[32m=============================================\033[0m"
