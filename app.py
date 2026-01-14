@@ -9,8 +9,8 @@ from flask import Flask, render_template, jsonify, request, send_file, send_from
 
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-# 生成随机密钥用于加密 Session (每次重启容器会失效，需要登录，这符合安全预期)
-app.secret_key = os.urandom(24)
+# 新代码：使用固定的密钥，或者从环境变量读取
+app.secret_key = os.getenv('SECRET_KEY', 'default-secret-key-please-change-in-prod')
 
 # --- 环境变量配置 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
