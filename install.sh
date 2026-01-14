@@ -40,7 +40,6 @@ install_app() {
     check_root; check_env
     echo -e "${GREEN}=== 开始安装 ${APP_NAME} ===${PLAIN}"
 
-    # 强制清理旧目录，防止 git clone 失败
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}清理旧安装...${PLAIN}"
         cd "$INSTALL_DIR" && docker-compose down >/dev/null 2>&1
@@ -60,11 +59,23 @@ install_app() {
     read -p "选择 [1-2]: " MODE
     CADDY_PORTS=""
     
+    # 【核心修改】增加了超时配置和文件大小限制配置
+    PROXY_CONFIG="reverse_proxy app:5000 {
+        transport http {
+            read_timeout 30m
+            write_timeout 30m
+        }
+    }"
+    BODY_CONFIG="request_body {
+        max_size 50GB
+    }"
+    
     if [[ "$MODE" == "2" ]]; then
         read -p "输入域名: " DOMAIN
         echo "$DOMAIN {
     encode gzip
-    reverse_proxy app:5000
+    $BODY_CONFIG
+    $PROXY_CONFIG
 }" > caddy/Caddyfile
         CADDY_PORTS='      - "80:80"
       - "443:443"'
@@ -72,14 +83,14 @@ install_app() {
         read -p "输入端口 (默认: 8080): " PORT; PORT=${PORT:-8080}
         echo ":$PORT {
     encode gzip
-    reverse_proxy app:5000
+    $BODY_CONFIG
+    $PROXY_CONFIG
 }" > caddy/Caddyfile
         CADDY_PORTS="      - \"80:80\"
       - \"443:443\"
       - \"${PORT}:${PORT}\""
     fi
 
-    # 动态生成 docker-compose.yml
     cat > docker-compose.yml <<EOF
 version: '3.8'
 services:
@@ -91,7 +102,7 @@ services:
     environment:
       - ADMIN_USER=${ADMIN_USER}
       - ADMIN_PASS=${ADMIN_PASS}
-      - SECRET_KEY=sijuly-cloud-secret-key-888 
+      - SECRET_KEY=$(openssl rand -hex 16)
       - REDIS_URL=redis://redis:6379/0
       - STORAGE_PATH=/app/storage
       - TRASH_PATH=/app/trash
@@ -120,8 +131,7 @@ ${CADDY_PORTS}
       - app
 EOF
 
-    echo -e "${YELLOW}正在构建并启动容器 (这可能需要几分钟)...${PLAIN}"
-    # 关键：使用 --build 强制本地构建
+    echo -e "${YELLOW}构建并启动...${PLAIN}"
     docker-compose up -d --build
 
     if [ $? -eq 0 ]; then
@@ -143,6 +153,9 @@ update_app() {
     git fetch --all; git reset --hard origin/main
     mv docker-compose.yml.bak docker-compose.yml
     mv caddy/Caddyfile.bak caddy/Caddyfile
+    
+    # 强制重新生成 Caddyfile 逻辑太复杂，更新模式建议手动修改或重装
+    # 这里我们只重建容器，确保代码生效
     docker-compose up -d --build --remove-orphans
     docker image prune -f
     echo -e "${GREEN}更新完成${PLAIN}"
@@ -168,7 +181,9 @@ uninstall_app() {
     fi
 }
 
-echo -e "1. 安装\n2. 更新\n3. 卸载"
+echo -e "1. 安装"
+echo -e "2. 更新"
+echo -e "3. 卸载"
 read -p "选择: " CHOICE
 case $CHOICE in
     1) install_app ;; 2) update_app ;; 3) uninstall_app ;; *) echo "无效" ;;
