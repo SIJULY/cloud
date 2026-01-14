@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>[[ filename ]] - 文件分享</title>
+    <link href="https://cdn.staticfile.org/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f3f4f6; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); width: 90%; max-width: 800px; overflow: hidden; }
+        .header { background: linear-gradient(to right, #3b82f6, #2563eb); padding: 20px; color: white; display: flex; align-items: center; justify-content: space-between; }
+        .content { padding: 30px; display: flex; flex-direction: column; align-items: center; }
+        .file-icon { font-size: 80px; color: #60a5fa; margin-bottom: 20px; }
+        .btn { padding: 12px 30px; border-radius: 99px; font-weight: 600; transition: all 0.2s; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+        .btn-primary { background-color: #3b82f6; color: white; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.5); }
+        .btn-primary:hover { background-color: #2563eb; transform: translateY(-1px); }
+        .video-container { width: 100%; background: black; border-radius: 8px; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        video { width: 100%; max-height: 70vh; outline: none; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div class="header">
+            <div class="flex items-center">
+                <i class="fa-solid fa-cloud text-2xl mr-3"></i>
+                <span class="font-bold text-lg">我的云盘分享</span>
+            </div>
+            <div class="text-sm opacity-80">Pro Max</div>
+        </div>
+
+        <div class="content">
+            {% if filename.lower().endswith(('.mp4', '.webm', '.ogg', '.mov')) %}
+                <div class="video-container">
+                    <video controls autoplay name="media">
+                        <source src="[[ download_url ]]" type="video/mp4">
+                        您的浏览器不支持视频播放。
+                    </video>
+                </div>
+                <h2 class="text-xl font-bold text-gray-800 mb-2">[[ filename ]]</h2>
+                <p class="text-gray-500 text-sm mb-6">在线播放中</p>
+            
+            {% elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')) %}
+                <img src="[[ download_url ]]" class="max-h-[60vh] rounded-lg shadow-md mb-6 object-contain">
+                <h2 class="text-xl font-bold text-gray-800 mb-2">[[ filename ]]</h2>
+
+            {% else %}
+                <div class="file-icon">
+                    {% if filename.lower().endswith(('.zip', '.rar', '.7z', '.tar', '.gz')) %}
+                        <i class="fa-solid fa-file-zipper text-yellow-500"></i>
+                    {% elif filename.lower().endswith(('.pdf')) %}
+                        <i class="fa-solid fa-file-pdf text-red-500"></i>
+                    {% elif filename.lower().endswith(('.doc', '.docx')) %}
+                        <i class="fa-solid fa-file-word text-blue-600"></i>
+                    {% elif filename.lower().endswith(('.xls', '.xlsx')) %}
+                        <i class="fa-solid fa-file-excel text-green-600"></i>
+                    {% else %}
+                        <i class="fa-solid fa-file text-gray-400"></i>
+                    {% endif %}
+                </div>
+                <h2 class="text-xl font-bold text-gray-800 mb-2">[[ filename ]]</h2>
+                <p class="text-gray-500 text-sm mb-6">文件大小未知 (流式传输)</p>
+            {% endif %}
+
+            <a href="[[ download_url ]]" download="[[ filename ]]" class="btn btn-primary">
+                <i class="fa-solid fa-download mr-2"></i> 下载文件
+            </a>
+            
+            <p class="mt-4 text-xs text-gray-400">
+                <i class="fa-solid fa-shield-halved mr-1"></i> 安全传输 | 支持 IDM / 迅雷 / 浏览器原生下载
+            </p>
+        </div>
+    </div>
+
+</body>
+</html>
