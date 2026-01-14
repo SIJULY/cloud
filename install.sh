@@ -8,7 +8,7 @@ PLAIN="\033[0m"
 
 APP_NAME="my-cloud-drive"
 INSTALL_DIR="/opt/$APP_NAME"
-# 你的 GitHub 仓库地址
+# 这里必须是你自己的 GitHub 仓库地址
 REPO_URL="https://github.com/SIJULY/cloud.git"
 
 check_root() {
@@ -55,8 +55,12 @@ install_app() {
     echo -e "${GREEN}=== 开始安装 ${APP_NAME} ===${PLAIN}"
 
     # 1. 准备目录与源码
+    # 强制清理旧目录，确保 git clone 能成功
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${YELLOW}检测到目录 $INSTALL_DIR 已存在，正在删除旧文件...${PLAIN}"
+        # 先停止可能存在的容器
+        cd "$INSTALL_DIR" && docker-compose down >/dev/null 2>&1
+        cd ..
         rm -rf "$INSTALL_DIR"
     fi
 
@@ -118,6 +122,7 @@ install_app() {
 
     # 5. 生成 docker-compose.yml
     # 使用cat写入，覆盖仓库里的默认模板
+    # 注意：build: . 是关键，它告诉 Docker 使用本地源码构建，而不是去拉取远程镜像
     cat > docker-compose.yml <<EOF
 version: '3.8'
 services:
@@ -163,6 +168,7 @@ EOF
     echo -e "${YELLOW}正在构建并启动容器 (这可能需要几分钟)...${PLAIN}"
     
     # 强制重新构建本地镜像
+    # 如果没有这一步，Docker 会试图去 Hub 拉取镜像从而报错
     docker-compose up -d --build
 
     # 检查运行状态
@@ -205,8 +211,8 @@ update_app() {
     mv caddy/Caddyfile.bak caddy/Caddyfile
     
     echo -e "${YELLOW}正在重建容器...${PLAIN}"
+    # 更新也需要重新 build
     docker-compose up -d --build --remove-orphans
-    # 清理旧镜像
     docker image prune -f
     echo -e "${GREEN}更新完成！${PLAIN}"
 }
