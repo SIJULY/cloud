@@ -62,8 +62,8 @@ install_app() {
     # 【核心修改】增加了超时配置和文件大小限制配置
     PROXY_CONFIG="reverse_proxy app:5000 {
         transport http {
-            read_timeout 30m
-            write_timeout 30m
+            read_timeout 300m
+            write_timeout 300m
         }
     }"
     BODY_CONFIG="request_body {
