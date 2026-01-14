@@ -91,6 +91,7 @@ services:
     environment:
       - ADMIN_USER=${ADMIN_USER}
       - ADMIN_PASS=${ADMIN_PASS}
+      - SECRET_KEY=sijuly-cloud-secret-key-888 
       - REDIS_URL=redis://redis:6379/0
       - STORAGE_PATH=/app/storage
       - TRASH_PATH=/app/trash
