@@ -9,7 +9,7 @@
     <script src="https://cdn.staticfile.org/vue/3.3.4/vue.global.prod.min.js"></script>
 
     <style>
-        /* Global Styles */
+        /* 全局样式优化 */
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
             background-color: #f3f4f6; 
@@ -18,7 +18,7 @@
             user-select: none; 
         }
         
-        /* Sidebar Item States */
+        /* 侧边栏选中态 */
         .nav-item { 
             border-right: 3px solid transparent; 
             transition: all 0.2s ease-in-out; 
@@ -32,7 +32,7 @@
             font-weight: 500;
         }
 
-        /* Grid View Card Styles */
+        /* 宫格卡片样式 */
         .grid-card { 
             border: 1px solid transparent; 
             border-radius: 12px;
@@ -51,18 +51,18 @@
             box-shadow: 0 0 0 1px #3b82f6;
         }
         
-        /* Checkbox Icon in Grid View */
+        /* 选中状态的小钩子 */
         .check-icon { display: none; }
         .grid-card.selected .check-icon { display: flex; }
         .grid-card:hover .check-icon { display: flex; opacity: 0.6; }
         .grid-card.selected .check-icon { opacity: 1; }
 
-        /* List View Row Styles */
+        /* 列表模式样式 */
         .list-row { transition: background-color 0.1s; }
         .list-row:hover { background-color: #f9fafb; }
         .list-row.selected { background-color: #eff6ff; }
 
-        /* Drawer & Mask Styles */
+        /* 抽屉动画 */
         .drawer-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 40; backdrop-filter: blur(2px); }
         .drawer { 
             position: fixed; right: 0; top: 0; bottom: 0; width: 420px; 
@@ -74,17 +74,16 @@
         }
         .drawer.open { transform: translateX(0); }
 
-        /* Toast Notification Styles */
+        /* Toast 提示 */
         .toast-container { position: fixed; top: 30px; left: 50%; transform: translateX(-50%); z-index: 100; pointer-events: none; }
         .toast { 
             background: rgba(31, 41, 55, 0.9); color: white; padding: 10px 24px; border-radius: 99px; 
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); font-size: 14px; margin-bottom: 10px;
-            opacity: 0; transform: translateY(-20px); transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
-            display: flex; align-items: center;
+            opacity: 0; transform: translateY(-20px); transition: all 0.3s; display: flex; align-items: center;
         }
         .toast.show { opacity: 1; transform: translateY(0); }
         
-        /* Button Styles */
+        /* 按钮样式 */
         .btn-pill {
             height: 36px;
             border: 1px solid #e5e7eb;
@@ -100,7 +99,7 @@
         .btn-pill:active { transform: scale(0.98); }
         .btn-pill i { margin-right: 6px; }
 
-        /* Dropdown Menu Styles */
+        /* 右键/下拉菜单 */
         .dropdown-menu {
             position: fixed; 
             width: 160px; background: white; border-radius: 8px; 
@@ -120,7 +119,7 @@
         .dropdown-item:hover i { color: #6b7280; }
         .dropdown-item.danger i { color: #f87171; }
 
-        /* Drag Overlay Styles */
+        /* 拖拽上传遮罩 */
         .drag-overlay {
             position: fixed; inset: 0; background: rgba(59, 130, 246, 0.1);
             border: 4px dashed #3b82f6; z-index: 999;
@@ -134,13 +133,13 @@
             text-align: center; color: #2563eb;
         }
 
-        /* Top Progress Bar for "Invisible Refresh" */
+        /* 顶部微型加载条 (解决切换卡顿感) */
         .loading-bar {
             position: fixed; top: 0; left: 0; height: 3px; background: #3b82f6; z-index: 9999;
             transition: width 0.2s; box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
         }
 
-        /* Video Player Overlay Styles */
+        /* 视频播放器层 */
         .video-overlay { position: fixed; inset: 0; background: black; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .video-close-btn { position: absolute; top: 20px; right: 20px; color: white; font-size: 24px; cursor: pointer; opacity: 0.7; z-index: 1001; }
         .video-close-btn:hover { opacity: 1; }
@@ -259,9 +258,7 @@
         </div>
 
         <div class="flex-1 flex flex-col bg-white overflow-hidden relative">
-            
             <div class="h-16 border-b border-gray-200 flex items-center justify-between px-6 bg-white z-10 shadow-sm">
-                
                 <div class="flex items-center space-x-4">
                     <div class="flex items-center border border-gray-200 rounded-full bg-white h-9 shadow-sm hover:shadow transition">
                         <button @click="goUp" :disabled="!path || currentTab !== 'files'" class="px-3 h-full hover:bg-gray-50 rounded-l-full text-gray-500 disabled:opacity-30 transition border-r border-gray-100">
@@ -557,7 +554,7 @@
                     result = result.filter(f => !f.name.startsWith('批量下载') && !f.name.match(/^batch_download_.*\.zip$/));
                     return result;
                 },
-                activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error', 'pending'].includes(t.status)); },
+                activeTransfers() { return this.transferList.filter(t => ['uploading', 'downloading', 'processing', 'error'].includes(t.status)); },
                 activeTransferCount() { return this.activeTransfers.filter(t => t.status !== 'error').length; }
             },
             mounted() { 
@@ -570,8 +567,19 @@
             },
             methods: {
                 handleBeforeUnload(e) { if (this.activeTransferCount > 0) { e.preventDefault(); e.returnValue = ''; return ''; } },
-                switchTab(tab) { this.currentTab = tab; this.loadFiles(''); },
-                switchCategory(type) { this.currentTab = 'category'; this.currentCategory = type; this.loadFiles(''); },
+                
+                // 【核心修改】切换大 Tab 时，强制清空列表以避免“闪现旧数据”
+                switchTab(tab) { 
+                    this.currentTab = tab; 
+                    this.files = []; // 强制清空，避免旧列表残留
+                    this.loadFiles(''); 
+                },
+                switchCategory(type) { 
+                    this.currentTab = 'category'; 
+                    this.currentCategory = type; 
+                    this.files = []; // 强制清空
+                    this.loadFiles(''); 
+                },
                 
                 async loadFiles(newPath = '') {
                     // 【核心】无感刷新：只有第一次(files为空)才全屏转圈，之后只在顶部显示小进度条
@@ -745,19 +753,14 @@
 
                         const handle = await window.showSaveFilePicker({ suggestedName: filename });
                         const writable = await handle.createWritable();
-                        task.status = 'downloading';
-                        const reader = response.body.getReader();
-                        task.cancelReader = () => reader.cancel();
-                        let loaded = 0; task.lastTime = Date.now();
+                        task.status = 'downloading'; task.lastTime = Date.now();
+                        const reader = response.body.getReader(); task.cancelReader = () => reader.cancel();
+                        let loaded = 0; 
                         while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
+                            const { done, value } = await reader.read(); if (done) break;
                             await writable.write(value); loaded += value.length;
                             const now = Date.now();
-                            if (now - task.lastTime >= 500) {
-                                const speed = (loaded - task.lastLoaded) / ((now - task.lastTime)/1000);
-                                task.speedText = this.formatSpeed(speed); task.lastLoaded = loaded; task.lastTime = now;
-                            }
+                            if (now - task.lastTime >= 500) { const speed = (loaded - task.lastLoaded) / ((now - task.lastTime)/1000); task.speedText = this.formatSpeed(speed); task.lastLoaded = loaded; task.lastTime = now; }
                             if (total) { const percent = (loaded / total) * 100; task.progress = percent; task.statusText = Math.round(percent) + '%'; } else { task.statusText = this.formatSize(loaded); }
                         }
                         await writable.close();
