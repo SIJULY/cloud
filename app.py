@@ -182,6 +182,29 @@ def public_share_link(share_id):
     download_url = url_for('public_share_link', share_id=share_id, dl='1')
     return render_template('share.html', filename=info['file_name'], download_url=download_url)
 
+
+# --- 图床专用接口 (无缓存限制) ---
+@app.route('/img/<share_id>')
+@app.route('/img/<share_id>.<ext>') 
+def image_hosting(share_id, ext=None):
+    # 1. 获取文件信息
+    info = share_manager.get_file_info(share_id)
+    if not info: return "404 Not Found", 404
+    
+    abs_path = os.path.join(ROOT_DIR, info['file_path'])
+    if not os.path.exists(abs_path): return "404 Not Found", 404
+    
+    # 2. 增加下载计数 (可选，如果你想统计图床流量)
+    # share_manager.increment_download(share_id)
+
+    # 3. 直接返回文件流 (as_attachment=False 表示在浏览器直接显示/播放)
+    response = send_file(abs_path, as_attachment=False)
+    
+    # 4. 开启范围请求支持 (这对视频流播放和拖动进度条至关重要)
+    response.headers["Accept-Ranges"] = "bytes"
+    
+    return response
+    
 # --- 受保护的 API ---
 
 @app.route('/api/list')
@@ -250,7 +273,28 @@ def operate_items():
 @app.route('/api/share/create', methods=['POST'])
 @auth_required
 def create_share_link():
-    links = [f"{request.host_url}s/{share_manager.create_share(p)}" for p in request.json.get('files', []) if os.path.exists(os.path.join(ROOT_DIR, p))]
+    files = request.json.get('files', [])
+    links = []
+    
+    # 获取图片和视频的后缀列表
+    media_exts = set(CATEGORY_EXTENSIONS['image'] + CATEGORY_EXTENSIONS['video'])
+
+    for p in files:
+        if os.path.exists(os.path.join(ROOT_DIR, p)):
+            share_id = share_manager.create_share(p)
+            filename = os.path.basename(p)
+            ext = os.path.splitext(filename)[1].lower()
+            
+            # 【核心修改】智能判断：如果是媒体文件，生成图床直链
+            if ext in media_exts:
+                # 生成格式：http://ip/img/share_id.jpg
+                link = f"{request.host_url}img/{share_id}{ext}"
+            else:
+                # 生成格式：http://ip/s/share_id
+                link = f"{request.host_url}s/{share_id}"
+            
+            links.append(link)
+
     return jsonify({'status': 'success', 'links': links})
 
 @app.route('/api/share/list', methods=['GET'])
