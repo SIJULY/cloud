@@ -119,7 +119,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 
 ### 👨‍💻 作者
-Project Developer: 小龙女她爸 Built with ❤️ for personal cloud storage efficiency.
+* Project Developer: 小龙女她爸 Built with ❤️ for personal cloud storage efficiency.
 
 
 
