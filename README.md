@@ -1,7 +1,15 @@
 # My Cloud Pro Max ☁️
 
-一个基于 **Flask + Vue 3** 构建的轻量级、高性能个人私有云盘系统。
-它不仅仅是一个文件管理器，更集成了**流式传输**、**在线影院**、**极客下载**和**智能资源管理**等 Pro 级功能。
+* 一个基于 **Flask + Vue 3** 构建的轻量级、高性能个人私有云盘系统。
+* 它不仅仅是一个文件管理器，更集成了**流式传输**、**在线影院**、**极客下载**和**智能资源管理**等 Pro 级功能。
+
+---
+
+# 🚀 快速安装 
+* 使用 Docker 一键启动，脚本会自动处理环境依赖和配置。
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/SIJULY/Cloud-Drive/main/install.sh)
+```
 
 ---
 
@@ -72,38 +80,42 @@ my-cloud-drive/
 
 ### 4. 启动服务
 
+```bash
 # 开发模式
 python app.py
 
 # 生产环境建议使用 Gunicorn
 gunicorn -w 4 -b 0.0.0.0:5000 app:app
+```
 
 ### 5. 账号配置
 
-export ADMIN_USER="admin"
-export ADMIN_PASS="your_secure_password"
-export SECRET_KEY="your_random_secret_key"
+* export ADMIN_USER="admin"
+
+* export ADMIN_PASS="your_secure_password"
+
+* export SECRET_KEY="your_random_secret_key"
 
 ### 📖 使用说明
 
-登录: 访问 http://你的IP:5000/login。
+* 登录: 访问 http://你的IP:5000/login。
 
-上传: 直接将文件拖入网页，或点击右上角“上传”按钮。
+* 上传: 直接将文件拖入网页，或点击右上角“上传”按钮。
 
-下载:
+* 下载:
 
-单文件: 双击非视频文件，或右键选择下载。
+* 单文件: 双击非视频文件，或右键选择下载。
 
-批量: 勾选多个文件 -> 点击“下载”，服务器会自动打包。
+* 批量: 勾选多个文件 -> 点击“下载”，服务器会自动打包。
 
-分享: 选中文件 -> 点击“分享” -> 复制链接发给朋友。
+* 分享: 选中文件 -> 点击“分享” -> 复制链接发给朋友。
 
-播放: 双击视频文件即可在线观看。
+* 播放: 双击视频文件即可在线观看。
 
 ### 📝 注意事项
-视频格式: 在线播放依赖浏览器解码能力，支持 MP4 (H.264), WebM, Ogg。MKV/AVI 等格式建议下载后观看。
+* 视频格式: 在线播放依赖浏览器解码能力，支持 MP4 (H.264), WebM, Ogg。MKV/AVI 等格式建议下载后观看。
 
-临时文件清理: 原生下载模式下，系统会在 10 秒后自动删除服务器上的临时压缩包。请勿在点击下载后 10 秒内立即关闭网页标签，否则可能导致清理请求未发送（虽然这对下载没有影响，只会残留垃圾文件）。
+* 临时文件清理: 原生下载模式下，系统会在 10 秒后自动删除服务器上的临时压缩包。请勿在点击下载后 10 秒内立即关闭网页标签，否则可能导致清理请求未发送（虽然这对下载没有影响，只会残留垃圾文件）。
 
 
 ### 👨‍💻 作者
@@ -111,6 +123,5 @@ Project Developer: 小龙女她爸 Built with ❤️ for personal cloud storage 
 
 
 
-bash <(curl -sSL https://raw.githubusercontent.com/SIJULY/Cloud-Drive/main/install.sh)
-```
+
 
