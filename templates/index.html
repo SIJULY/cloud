@@ -134,11 +134,16 @@
             text-align: center; color: #2563eb;
         }
 
-        /* 顶部微型加载条 */
+        /* 顶部微型加载条 (解决切换卡顿感) */
         .loading-bar {
             position: fixed; top: 0; left: 0; height: 3px; background: #3b82f6; z-index: 9999;
             transition: width 0.2s; box-shadow: 0 1px 2px rgba(59, 130, 246, 0.3);
         }
+
+        /* 视频播放器层 */
+        .video-overlay { position: fixed; inset: 0; background: black; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .video-close-btn { position: absolute; top: 20px; right: 20px; color: white; font-size: 24px; cursor: pointer; opacity: 0.7; z-index: 1001; }
+        .video-close-btn:hover { opacity: 1; }
     </style>
 </head>
 <body class="text-gray-700">
@@ -149,6 +154,14 @@
          @dragover.prevent="onDragOver" 
          @dragleave.prevent="onDragLeave" 
          @drop.prevent="onDrop">
+
+        <div v-if="videoPlayer.show" class="video-overlay">
+            <button @click="closeVideo" class="video-close-btn"><i class="fa-solid fa-xmark"></i></button>
+            <video controls autoplay class="w-full h-full max-w-5xl max-h-[90vh] outline-none shadow-2xl" :src="videoPlayer.url">
+                您的浏览器不支持视频播放。
+            </video>
+            <div class="text-white mt-4 text-sm font-mono opacity-80">正在播放: [[ videoPlayer.name ]]</div>
+        </div>
 
         <div v-if="isFetching" class="loading-bar" style="width: 70%; animation: load 2s infinite;"></div>
         <style>@keyframes load { 0% { width: 0; left: 0; } 50% { width: 70%; left: 30%; } 100% { width: 100%; left: 100%; } }</style>
@@ -168,6 +181,9 @@
         </div>
 
         <div v-if="contextMenu.show" class="dropdown-menu" :style="{top: contextMenu.y + 'px', left: contextMenu.x + 'px'}">
+            <div v-if="isVideo(contextMenu.targetFile?.name)" class="dropdown-item" @click="playVideo(contextMenu.targetFile)"><i class="fa-solid fa-circle-play text-blue-500"></i> 在线播放</div>
+            <div class="h-px bg-gray-100 my-1" v-if="isVideo(contextMenu.targetFile?.name)"></div>
+
             <div class="dropdown-item" @click="downloadSelected"><i class="fa-solid fa-download"></i> 下载</div>
             <div class="dropdown-item" @click="shareSelected"><i class="fa-solid fa-share-nodes"></i> 分享</div>
             <div class="h-px bg-gray-100 my-1"></div>
@@ -484,7 +500,7 @@
                         <div class="flex justify-between mb-2">
                             <div class="text-sm font-medium text-gray-700 truncate w-48" :title="task.name">[[ task.name ]]</div>
                             <div class="flex items-center space-x-3">
-                                <span v-if="(task.status === 'uploading' || task.status === 'downloading') && task.speedText" class="text-xs text-gray-400 font-mono">[[ task.speedText ]]</span>
+                                <span v-if="['uploading', 'downloading'].includes(task.status) && task.statusText !== '排队中...'" class="text-xs text-gray-400 font-mono">[[ task.speedText ]]</span>
                                 <span class="text-xs" :class="task.status === 'error' ? 'text-red-500' : 'text-blue-500'">[[ task.statusText ]]</span>
                                 <button @click="cancelTask(task)" class="text-gray-400 hover:text-red-500 transition" title="取消"><i class="fa-solid fa-xmark"></i></button>
                             </div>
@@ -523,7 +539,9 @@
                     showTransferDrawer: false, transferTab: 'active', transferList: [], transferHistory: [], toast: { show: false, message: '' }, 
                     showMoreMenu: false, refreshTimer: null, dragActive: false,
                     contextMenu: { show: false, x: 0, y: 0, targetFile: null },
-                    isFetching: false // 用于顶部微型加载条
+                    isFetching: false, // 用于顶部微型加载条
+                    videoPlayer: { show: false, url: '', name: '' },
+                    queue: [], activeCount: 0, maxConcurrency: 3 // 队列相关
                 }
             },
             computed: {
@@ -535,7 +553,7 @@
                         const lowerQuery = this.searchQuery.toLowerCase(); 
                         result = result.filter(file => file.name.toLowerCase().includes(lowerQuery)); 
                     }
-                    // 2. 垃圾过滤：【核心修改】隐藏后端生成的 "批量下载.zip" 临时文件，防止列表污染
+                    // 2. 垃圾过滤：【核心】隐藏后端生成的 "批量下载.zip" 临时文件，防止列表污染
                     result = result.filter(f => !f.name.startsWith('批量下载') && !f.name.match(/^batch_download_.*\.zip$/));
                     return result;
                 },
@@ -556,12 +574,12 @@
                 switchCategory(type) { this.currentTab = 'category'; this.currentCategory = type; this.loadFiles(''); },
                 
                 async loadFiles(newPath = '') {
-                    // 【核心修改】无感刷新：只有第一次(files为空)才全屏转圈，之后只在顶部显示小进度条
+                    // 【核心】无感刷新：只有第一次(files为空)才全屏转圈，之后只在顶部显示小进度条
                     if (this.files.length === 0) this.loading = true;
                     this.isFetching = true;
                     this.selectedFiles = []; this.searchQuery = '';
                     
-                    // 【核心修改】防缓存时间戳
+                    // 【核心】防缓存时间戳
                     const ts = new Date().getTime();
                     
                     try {
@@ -585,7 +603,27 @@
                 triggerRefresh() { if (this.refreshTimer) clearTimeout(this.refreshTimer); this.refreshTimer = setTimeout(() => { this.loadFiles(this.path); this.refreshTimer = null; }, 1500); },
                 goUp() { if(!this.path) return; const parts = this.path.split('/'); parts.pop(); this.loadFiles(parts.join('/')); },
                 handleFileClick(file, event) { if (event.ctrlKey || event.metaKey) { this.toggleSelect(this.currentTab === 'trash' ? file.id : file.path); } else { this.selectedFiles = [this.currentTab === 'trash' ? file.id : file.path]; } },
-                handleFileDblClick(file) { if (file.is_dir) { this.loadFiles(file.path); } else { this.selectedFiles = [file.path]; this.downloadSelected(); } },
+                
+                // 【核心】双击逻辑：文件夹->进入，视频->播放，其他->下载
+                handleFileDblClick(file) { 
+                    if (file.is_dir) { this.loadFiles(file.path); }
+                    else if (this.isVideo(file.name)) { this.playVideo(file); } 
+                    else { this.selectedFiles = [file.path]; this.downloadSelected(); } 
+                },
+                
+                // --- 视频播放 ---
+                isVideo(name) { return name && /\.(mp4|webm|ogg|mov)$/i.test(name); },
+                playVideo(file) {
+                    this.videoPlayer.url = '/api/file?path=' + encodeURIComponent(file.path);
+                    this.videoPlayer.name = file.name;
+                    this.videoPlayer.show = true;
+                    this.closeMenu();
+                },
+                closeVideo() {
+                    this.videoPlayer.show = false;
+                    this.videoPlayer.url = ''; 
+                },
+
                 handleContextMenu(event, file) { this.selectedFiles = [file.path]; this.contextMenu.targetFile = file; this.contextMenu.x = event.clientX; this.contextMenu.y = event.clientY; this.contextMenu.show = true; this.showMoreMenu = false; },
                 closeMenu() { this.contextMenu.show = false; this.showMoreMenu = false; },
                 toggleMenu(e) { this.showMoreMenu = !this.showMoreMenu; },
@@ -595,7 +633,7 @@
                 onDragLeave(e) { if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) { this.dragActive = false; } },
                 onDrop(e) { this.dragActive = false; const files = e.dataTransfer.files; if (files.length > 0 && this.currentTab === 'files') { this.showTransferDrawer = true; this.transferTab = 'active'; Array.from(files).forEach(file => this.uploadOneFile(file)); } },
                 async createFolder() { const name = prompt("请输入文件夹名称:", "新建文件夹"); if (!name) return; const res = await fetch('/api/mkdir', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: this.path, name: name }) }); if (res.ok) { this.showToast("文件夹创建成功"); this.loadFiles(this.path); } else { const err = await res.json(); alert("创建失败: " + err.error); } },
-                async shareSelected() { const count = this.selectedFiles.length; if (count === 0) return; const res = await fetch('/api/share/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); const data = await res.json(); if(data.status === 'success') { const links = data.links.join('\n'); navigator.clipboard.writeText(links).then(() => { alert(`链接已复制:\n${links}`); }); this.showToast(`分享成功`); } else { alert("分享失败"); } this.closeMenu(); },
+                async shareSelected() { const count = this.selectedFiles.length; if (count === 0) return; const res = await fetch('/api/share/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: this.selectedFiles }) }); const data = await res.json(); if(data.status === 'success') { const links = data.links.join('\n'); navigator.clipboard.writeText(links).then(() => { alert(`链接已复制:\n${links}`); }); this.showToast(`成功创建 ${count} 个分享`); } else { alert("分享失败"); } this.closeMenu(); },
                 async cancelShare(shareId) { if(!confirm("确定要取消此分享吗？")) return; await fetch('/api/share/cancel', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id: shareId }) }); this.showToast("分享已取消"); this.loadFiles(); },
                 async handleMoreAction(action) {
                     this.closeMenu(); const count = this.selectedFiles.length;
@@ -610,78 +648,83 @@
                 handleFileUpload(event) { const files = event.target.files; if (!files.length) return; this.showTransferDrawer = true; this.transferTab = 'active'; Array.from(files).forEach(file => this.uploadOneFile(file)); event.target.value = ''; },
                 formatSpeed(bytesPerSecond) { if (bytesPerSecond === 0) return '0 KB/s'; const k = 1024; const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s']; const i = Math.floor(Math.log(bytesPerSecond) / Math.log(k)); return parseFloat((bytesPerSecond / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]; },
                 
+                processQueue() { if (this.activeCount >= this.maxConcurrency) return; if (this.queue.length === 0) return; const nextTask = this.queue.shift(); this.activeCount++; nextTask.start(); },
+
                 uploadOneFile(file) {
-                    const task = reactive({ name: file.name, progress: 0, status: 'uploading', statusText: '等待中...', type: 'upload', startTime: new Date().getTime(), xhr: null, lastLoaded: 0, lastTime: new Date().getTime(), speedText: '' });
+                    const task = reactive({ name: file.name, progress: 0, status: 'pending', statusText: '排队中...', type: 'upload', startTime: null, xhr: null, lastLoaded: 0, lastTime: 0, speedText: '' });
                     this.transferList.unshift(task);
-                    const formData = new FormData(); formData.append('file', file); formData.append('path', this.path);
-                    const xhr = new XMLHttpRequest(); task.xhr = xhr;
-                    xhr.upload.onprogress = (e) => {
-                        if (e.lengthComputable) {
-                            const now = new Date().getTime();
-                            if (now - task.lastTime >= 500) { const diff = e.loaded - task.lastLoaded; const time = (now - task.lastTime) / 1000; task.speedText = this.formatSpeed(diff / time); task.lastLoaded = e.loaded; task.lastTime = now; }
-                            const percent = (e.loaded / e.total) * 100; task.progress = percent; task.statusText = percent >= 100 ? '写入中...' : Math.round(percent) + '%'; if (percent >= 100) task.speedText = '';
-                        }
+                    task.start = () => {
+                        task.status = 'uploading'; task.statusText = '准备中...'; task.startTime = new Date().getTime(); task.lastTime = new Date().getTime();
+                        const formData = new FormData(); formData.append('file', file); formData.append('path', this.path);
+                        const xhr = new XMLHttpRequest(); task.xhr = xhr;
+                        xhr.upload.onprogress = (e) => {
+                            if (e.lengthComputable) {
+                                const now = new Date().getTime();
+                                if (now - task.lastTime >= 500) { const diff = e.loaded - task.lastLoaded; const time = (now - task.lastTime) / 1000; task.speedText = this.formatSpeed(diff / time); task.lastLoaded = e.loaded; task.lastTime = now; }
+                                const percent = (e.loaded / e.total) * 100; task.progress = percent; task.statusText = percent >= 100 ? '写入中...' : Math.round(percent) + '%'; if (percent >= 100) task.speedText = '';
+                            }
+                        };
+                        xhr.onload = () => { this.activeCount--; this.processQueue(); if (xhr.status === 200) { task.progress = 100; task.status = 'success'; task.speedText = ''; this.completeTask(task); this.triggerRefresh(); } else { task.status = 'error'; task.statusText = '失败'; } };
+                        xhr.onerror = () => { this.activeCount--; this.processQueue(); task.status = 'error'; task.statusText = '网络错误'; };
+                        xhr.onabort = () => { this.activeCount--; this.processQueue(); task.status = 'error'; task.statusText = '已取消'; };
+                        xhr.open('POST', '/api/upload', true); xhr.send(formData);
                     };
-                    xhr.onload = () => { if (xhr.status === 200) { task.progress = 100; task.status = 'success'; task.speedText = ''; this.completeTask(task); this.triggerRefresh(); } else { task.status = 'error'; task.statusText = '失败'; } };
-                    xhr.onerror = () => { task.status = 'error'; task.statusText = '网络错误'; };
-                    xhr.onabort = () => { task.status = 'error'; task.statusText = '已取消'; };
-                    xhr.open('POST', '/api/upload', true); xhr.send(formData);
+                    this.queue.push(task); this.processQueue();
                 },
 
                 async downloadSelected() {
                     this.closeMenu();
                     if (this.selectedFiles.length === 0) return;
-                    this.showTransferDrawer = true; this.transferTab = 'active';
-                    const task = reactive({ name: this.selectedFiles.length === 1 ? this.selectedFiles[0].split('/').pop() : `批量下载.zip`, progress: 0, status: 'processing', statusText: '服务器打包...', type: 'download', startTime: new Date().getTime(), cancelReader: null, lastLoaded: 0, lastTime: Date.now(), speedText: '' });
-                    this.transferList.unshift(task);
-                    try {
-                        const res = await fetch('/api/archive', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({files: this.selectedFiles}) });
-                        const data = await res.json();
-                        
-                        // 修正：从后端获取真实路径和下载链接
-                        const result = await this.pollForDownloadUrl(data.task_id, task);
-                        if (!result) return;
-
-                        // 【核心】智能判断：支持 API 且文件 < 2GB
-                        if (window.showSaveFilePicker) {
-                            // 传入真实路径以便清理
-                            await this.streamDownload(result.url, task.name, task, result.path);
-                        } else {
-                            // 传入真实路径以便延迟清理
-                            this.fallbackToNative(task, result.url, result.path);
+                    
+                    // 【核心】单文件直连逻辑 (不走打包)
+                    if (this.selectedFiles.length === 1) {
+                        const file = this.files.find(f => f.path === this.selectedFiles[0]);
+                        // 如果是普通文件，直接下载
+                        if (file && !file.is_dir) {
+                            this.showTransferDrawer = true; this.transferTab = 'active';
+                            const task = reactive({ name: file.name, progress: 0, status: 'pending', statusText: '排队中...', type: 'download', startTime: null, cancelReader: null, lastLoaded: 0, lastTime: 0, speedText: '' });
+                            this.transferList.unshift(task);
+                            task.start = async () => {
+                                task.status = 'processing'; task.statusText = '准备下载...'; task.startTime = new Date().getTime();
+                                const dlUrl = `/api/file?path=${encodeURIComponent(file.path)}`;
+                                // 单文件下载不需要清理，传入 null
+                                if (window.showSaveFilePicker) { await this.streamDownload(dlUrl, task.name, task, null); } else { this.fallbackToNative(task, dlUrl, null); }
+                            };
+                            this.queue.push(task); this.processQueue();
+                            return; 
                         }
-                    } catch (e) { task.status = 'error'; task.statusText = '请求失败'; console.error(e); }
+                    }
+
+                    // --- 多文件打包下载 ---
+                    this.showTransferDrawer = true; this.transferTab = 'active';
+                    const task = reactive({ name: `批量下载.zip`, progress: 0, status: 'pending', statusText: '排队中...', type: 'download', startTime: null, cancelReader: null, lastLoaded: 0, lastTime: 0, speedText: '' });
+                    this.transferList.unshift(task);
+                    task.start = async () => {
+                        task.status = 'processing'; task.statusText = '服务器打包...'; task.startTime = new Date().getTime();
+                        try {
+                            const res = await fetch('/api/archive', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({files: this.selectedFiles}) });
+                            const data = await res.json();
+                            const result = await this.pollForDownloadUrl(data.task_id, task);
+                            if (!result) { this.activeCount--; this.processQueue(); return; }
+                            
+                            // 多文件下载需要清理临时包，传入 result.path
+                            if (window.showSaveFilePicker) { await this.streamDownload(result.url, task.name, task, result.path); } else { this.fallbackToNative(task, result.url, result.path); }
+                        } catch (e) { this.activeCount--; this.processQueue(); task.status = 'error'; task.statusText = '请求失败'; console.error(e); }
+                    };
+                    this.queue.push(task); this.processQueue();
                 },
                 fallbackToNative(task, url, cleanupPath) {
-                    task.statusText = '浏览器接管'; task.progress = 100; task.status = 'success'; 
-                    window.location.href = url;
-                    
-                    // 【核心新增】原生下载时，延迟10秒删除服务器临时文件
-                    // 利用Linux特性：删除文件不影响已打开的流读取
-                    if (cleanupPath) {
-                        setTimeout(() => {
-                            fetch('/api/delete', { 
-                                method: 'POST', 
-                                headers: {'Content-Type': 'application/json'}, 
-                                body: JSON.stringify({ files: [cleanupPath] }) 
-                            }).catch(e => console.error("Auto cleanup failed", e));
-                        }, 10000); // 10秒后执行删除
-                    }
+                    this.activeCount--; this.processQueue();
+                    task.statusText = '浏览器接管'; task.progress = 100; task.status = 'success'; window.location.href = url;
+                    // 【核心】原生下载延迟清理
+                    if (cleanupPath) { setTimeout(() => { fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: [cleanupPath] }) }); }, 10000); }
                 },
                 pollForDownloadUrl(taskId, task) {
                     return new Promise((resolve) => {
                         const timer = setInterval(async () => {
                             try {
                                 const res = await fetch(`/api/status/${taskId}`); const data = await res.json();
-                                if (data.state === 'SUCCESS') { 
-                                    clearInterval(timer); 
-                                    task.statusText = '准备下载...'; 
-                                    // 修正：返回对象包含 url 和 真实文件路径 (result.result 是后端返回的文件路径)
-                                    resolve({ 
-                                        url: `/api/download_result?file=${encodeURIComponent(data.result.result)}`,
-                                        path: data.result.result 
-                                    }); 
-                                } 
+                                if (data.state === 'SUCCESS') { clearInterval(timer); task.statusText = '准备下载...'; resolve({ url: `/api/download_result?file=${encodeURIComponent(data.result.result)}`, path: data.result.result }); } 
                                 else if (data.state === 'FAILURE') { clearInterval(timer); task.status = 'error'; resolve(null); }
                             } catch (e) { clearInterval(timer); task.status = 'error'; resolve(null); }
                         }, 1000);
@@ -719,26 +762,25 @@
                         }
                         await writable.close();
                         
-                        // 【核心新增】流式下载成功后，发送请求彻底删除服务器上的临时文件
-                        if (cleanupPath) {
-                            fetch('/api/delete', { 
-                                method: 'POST', 
-                                headers: {'Content-Type': 'application/json'}, 
-                                body: JSON.stringify({ files: [cleanupPath] }) 
-                            });
-                        }
+                        // 【核心】流式下载立即清理
+                        if (cleanupPath) { fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ files: [cleanupPath] }) }); }
 
+                        this.activeCount--; this.processQueue();
                         task.progress = 100; task.status = 'success'; task.statusText = '完成'; task.speedText = ''; this.completeTask(task);
                     } catch (err) {
                         console.error(err);
-                        if (err.name === 'AbortError') { task.status = 'error'; task.statusText = '已取消'; }
-                        else if (err.name === 'NotAllowedError') { const idx = this.transferList.indexOf(task); if (idx > -1) this.transferList.splice(idx, 1); }
+                        if (err.name === 'AbortError') { this.activeCount--; this.processQueue(); task.status = 'error'; task.statusText = '已取消'; }
+                        else if (err.name === 'NotAllowedError') { this.activeCount--; this.processQueue(); const idx = this.transferList.indexOf(task); if (idx > -1) this.transferList.splice(idx, 1); }
                         else { 
                             this.fallbackToNative(task, url, cleanupPath); 
                         }
                     }
                 },
-                cancelTask(task) { if (task.status === 'uploading' && task.xhr) task.xhr.abort(); if (task.status === 'downloading' && task.cancelReader) task.cancelReader(); const index = this.transferList.indexOf(task); if (index > -1) this.transferList.splice(index, 1); },
+                cancelTask(task) { 
+                    if (task.status === 'pending') { const qIdx = this.queue.indexOf(task); if (qIdx > -1) this.queue.splice(qIdx, 1); } 
+                    else { if (task.status === 'uploading' && task.xhr) task.xhr.abort(); if (task.status === 'downloading' && task.cancelReader) task.cancelReader(); }
+                    const index = this.transferList.indexOf(task); if (index > -1) this.transferList.splice(index, 1); 
+                },
                 completeTask(task) { this.addToHistory(task); setTimeout(() => { const index = this.transferList.indexOf(task); if (index > -1) this.transferList.splice(index, 1); }, 1000); },
                 addToHistory(task) { const record = { name: task.name, type: task.type, time: new Date().toLocaleString(), status: 'success' }; this.transferHistory.unshift(record); this.saveHistory(); },
                 saveHistory() { localStorage.setItem('drive_transfer_history', JSON.stringify(this.transferHistory)); },
