@@ -3,16 +3,14 @@ import time
 import shutil
 import json
 import uuid
-import zipfile
 from functools import wraps
-from flask import Flask, render_template, jsonify, request, send_file, send_from_directory, redirect, session, url_for
+from flask import Flask, render_template, jsonify, request, send_file, redirect, session, url_for
 
 app = Flask(__name__)
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-# Use a fixed secret key or read from environment variable
 app.secret_key = os.getenv('SECRET_KEY', 'default-secret-key-please-change-in-prod')
 
-# --- Environment Variable Configuration ---
+# --- 基础配置 ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.getenv('STORAGE_PATH', os.path.join(BASE_DIR, 'storage'))
 TRASH_DIR = os.getenv('TRASH_PATH', os.path.join(BASE_DIR, 'trash'))
@@ -20,11 +18,9 @@ SHARE_DIR = os.getenv('SHARE_PATH', os.path.join(BASE_DIR, 'shares'))
 TRASH_META_FILE = os.path.join(TRASH_DIR, 'metadata.json')
 SHARE_META_FILE = os.path.join(SHARE_DIR, 'metadata.json')
 
-# Credentials
 ADMIN_USER = os.getenv('ADMIN_USER', 'admin')
 ADMIN_PASS = os.getenv('ADMIN_PASS', 'admin123')
 
-# Ensure directories exist
 for d in [ROOT_DIR, TRASH_DIR, SHARE_DIR]:
     if not os.path.exists(d): os.makedirs(d)
 
@@ -35,48 +31,36 @@ CATEGORY_EXTENSIONS = {
     'app':   ['.exe', '.dmg', '.pkg', '.apk', '.ipa', '.deb', '.rpm', '.msi']
 }
 
-# --- Authentication Decorator ---
+# --- 鉴权 ---
 def auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Check session for login marker
         if not session.get('logged_in'):
-            # Return 401 for API requests
-            if request.path.startswith('/api/'):
-                return jsonify({'error': 'Unauthorized'}), 401
-            # Redirect to login page for page access
+            if request.path.startswith('/api/'): return jsonify({'error': 'Unauthorized'}), 401
             return redirect('/login')
         return f(*args, **kwargs)
     return decorated
 
-# --- Data Management Classes ---
+# --- 数据管理 ---
 class JsonManager:
     def __init__(self, filepath):
         self.filepath = filepath
         self.load_metadata()
-        
     def load_metadata(self):
         if os.path.exists(self.filepath):
             try:
-                with open(self.filepath, 'r', encoding='utf-8') as f:
-                    self.data = json.load(f)
-            except Exception as e:
-                # 【修改】打印错误日志，而不是默默清空
-                print(f"❌ Error loading {self.filepath}: {e}")
-                # 如果文件坏了，暂时保持空，但至少后台能看到报错
+                with open(self.filepath, 'r', encoding='utf-8') as f: self.data = json.load(f)
+            except Exception as e: 
+                print(f"Error loading {self.filepath}: {e}")
                 self.data = {}
-        else:
-            self.data = {}
-            
+        else: self.data = {}
     def save_metadata(self):
-        # 【修改】增加 flush 确保数据真正写入硬盘
         try:
             with open(self.filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
                 f.flush()
-                os.fsync(f.fileno()) # 强制写入硬盘，防止重启丢失
-        except Exception as e:
-            print(f"❌ Error saving {self.filepath}: {e}")
+                os.fsync(f.fileno())
+        except Exception as e: print(f"Error saving {self.filepath}: {e}")
 
 class TrashManager(JsonManager):
     def add_item(self, filename, original_rel_path, is_dir):
@@ -120,13 +104,7 @@ class ShareManager(JsonManager):
             res.append({'id': sid, 'name': info['file_name'], 'path': info['file_path'], 'mtime': info['created_at'], 'downloads': info.get('downloads', 0), 'status': 'normal' if exists else 'lost'})
         return sorted(res, key=lambda x: x['mtime'], reverse=True)
     def get_file_info(self, share_id):
-        if share_id in self.data:
-            info = self.data[share_id]; 
-            # Note: Incrementing downloads here happens on view, ideally move to download action
-            # keeping logic simple as per request
-            self.save_metadata(); 
-            return info
-        return None
+        return self.data.get(share_id)
     def increment_download(self, share_id):
         if share_id in self.data:
             self.data[share_id]['downloads'] = self.data[share_id].get('downloads', 0) + 1
@@ -147,16 +125,27 @@ def get_disk_usage():
         return {'used': human_readable_size(used), 'total': human_readable_size(total), 'percent': (used / total) * 100}
     except: return {'used': '0 B', 'total': '0 B', 'percent': 0}
 
-# ================= Routes =================
+# --- 辅助函数：清理旧的临时压缩包 ---
+def clean_old_archives():
+    now = time.time()
+    # 遍历根目录，找到所有以 batch_download_ 开头的 zip 文件
+    # 如果超过 3600 秒 (1小时) 没动过，就删掉
+    for f in os.listdir(ROOT_DIR):
+        if f.startswith('batch_download_') and f.endswith('.zip'):
+            path = os.path.join(ROOT_DIR, f)
+            try:
+                if os.stat(path).st_mtime < now - 3600:
+                    os.remove(path)
+                    print(f"Auto-cleaned old archive: {f}")
+            except: pass
 
-# 1. Login Page (GET)
+# ================= 路由 =================
+
 @app.route('/login', methods=['GET'])
 def login_page():
-    if session.get('logged_in'):
-        return redirect('/')
+    if session.get('logged_in'): return redirect('/')
     return render_template('login.html')
 
-# 2. Login API (POST)
 @app.route('/api/login', methods=['POST'])
 def login_api():
     data = request.json
@@ -165,46 +154,34 @@ def login_api():
         return jsonify({'status': 'success'})
     return jsonify({'status': 'fail', 'message': '账号或密码错误'}), 401
 
-# 3. Logout API
 @app.route('/logout')
 def logout():
     session.pop('logged_in', None)
     return redirect('/login')
 
-# 4. Home Page (Protected)
 @app.route('/')
 @auth_required
 def index():
     return render_template('index.html')
 
-# 5. Public Share Link (No Auth Required) 
 @app.route('/s/<share_id>')
 def public_share_link(share_id):
     info = share_manager.get_file_info(share_id)
-    if not info: 
-        return "分享链接已过期或不存在", 404
-    
+    if not info: return "分享链接已过期或不存在", 404
     abs_path = os.path.join(ROOT_DIR, info['file_path'])
-    if not os.path.exists(abs_path): 
-        return "源文件已被删除", 404
-    
-    if info['is_dir']: 
-        return f"这是一个文件夹 ({info['file_name']})，暂不支持下载。", 200
+    if not os.path.exists(abs_path): return "源文件已被删除", 404
+    if info['is_dir']: return f"这是一个文件夹 ({info['file_name']})，暂不支持下载。", 200
 
-    # Logic: If ?dl=1 param exists, stream the file; otherwise render the share page
     if request.args.get('dl') == '1':
-        # Increment download count only on actual download/stream
         share_manager.increment_download(share_id)
-        # Enable Range header for video streaming/resume support
         response = send_file(abs_path, as_attachment=False, download_name=info['file_name'])
         response.headers["Accept-Ranges"] = "bytes"
         return response
     
-    # Generate the download URL pointing back to this route with ?dl=1
     download_url = url_for('public_share_link', share_id=share_id, dl='1')
     return render_template('share.html', filename=info['file_name'], download_url=download_url)
 
-# --- Protected APIs ---
+# --- 受保护的 API ---
 
 @app.route('/api/list')
 @auth_required
@@ -290,12 +267,10 @@ def soft_delete():
     for p in request.json.get('files', []):
         src = os.path.join(ROOT_DIR, p)
         if os.path.exists(src):
-            # Check if it's a temp zip file, if so delete permanently
             if os.path.basename(p).startswith('batch_download_') and p.endswith('.zip'):
                 try: os.remove(src)
                 except: pass
                 continue
-                
             uid = trash_manager.add_item(os.path.basename(p), p, os.path.isdir(src))
             try: shutil.move(src, os.path.join(TRASH_DIR, uid)); count+=1
             except: pass
@@ -348,6 +323,9 @@ def upload_file():
 @app.route('/api/archive', methods=['POST'])
 @auth_required
 def archive_files():
+    # 【新增】每次打包前，先清理一下旧的垃圾文件
+    clean_old_archives()
+    
     from tasks import compress_files_task
     abs_paths = [os.path.join(ROOT_DIR, p) for p in request.json.get('files')]
     task = compress_files_task.delay(abs_paths)
@@ -368,7 +346,6 @@ def task_status(task_id):
 @auth_required
 def download_result_file():
     file_path = request.args.get('file')
-    # Use basename for download so user sees clean name like "batch_download.zip" or custom name
     return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path))
 
 @app.route('/api/file')
