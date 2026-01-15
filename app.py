@@ -50,9 +50,7 @@ class JsonManager:
         if os.path.exists(self.filepath):
             try:
                 with open(self.filepath, 'r', encoding='utf-8') as f: self.data = json.load(f)
-            except Exception as e: 
-                print(f"Error loading {self.filepath}: {e}")
-                self.data = {}
+            except: self.data = {}
         else: self.data = {}
     def save_metadata(self):
         try:
@@ -60,10 +58,11 @@ class JsonManager:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
-        except Exception as e: print(f"Error saving {self.filepath}: {e}")
+        except: pass
 
 class TrashManager(JsonManager):
     def add_item(self, filename, original_rel_path, is_dir):
+        self.load_metadata() # 写入前同步
         unique_name = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{filename}"
         self.data[unique_name] = {
             'original_name': filename, 'original_path': original_rel_path, 'is_dir': is_dir,
@@ -73,8 +72,10 @@ class TrashManager(JsonManager):
         self.save_metadata()
         return unique_name
     def remove_item(self, unique_name):
+        self.load_metadata() # 写入前同步
         if unique_name in self.data: del self.data[unique_name]; self.save_metadata()
     def get_list(self):
+        self.load_metadata() # 【核心修改】每次读取前强制刷新，防止不同进程数据不一致
         res = []
         for uid, info in self.data.items():
             res.append({'id': uid, 'name': info['original_name'], 'path': info['original_path'], 'mtime': info['deleted_at'], 'size': info.get('size_str', '-'), 'is_dir': info['is_dir']})
@@ -85,6 +86,7 @@ class TrashManager(JsonManager):
 
 class ShareManager(JsonManager):
     def create_share(self, rel_path):
+        self.load_metadata() # 写入前同步
         share_id = uuid.uuid4().hex[:6]
         while share_id in self.data: share_id = uuid.uuid4().hex[:6]
         full_path = os.path.join(ROOT_DIR, rel_path)
@@ -95,17 +97,21 @@ class ShareManager(JsonManager):
         self.save_metadata()
         return share_id
     def cancel_share(self, share_id):
+        self.load_metadata() # 写入前同步
         if share_id in self.data: del self.data[share_id]; self.save_metadata(); return True
         return False
     def get_list(self):
+        self.load_metadata() # 【核心修改】每次读取前强制刷新，防止浏览器看到旧数据
         res = []
         for sid, info in self.data.items():
             exists = os.path.exists(os.path.join(ROOT_DIR, info['file_path']))
             res.append({'id': sid, 'name': info['file_name'], 'path': info['file_path'], 'mtime': info['created_at'], 'downloads': info.get('downloads', 0), 'status': 'normal' if exists else 'lost'})
         return sorted(res, key=lambda x: x['mtime'], reverse=True)
     def get_file_info(self, share_id):
+        self.load_metadata() # 读取前同步
         return self.data.get(share_id)
     def increment_download(self, share_id):
+        self.load_metadata()
         if share_id in self.data:
             self.data[share_id]['downloads'] = self.data[share_id].get('downloads', 0) + 1
             self.save_metadata()
@@ -125,18 +131,13 @@ def get_disk_usage():
         return {'used': human_readable_size(used), 'total': human_readable_size(total), 'percent': (used / total) * 100}
     except: return {'used': '0 B', 'total': '0 B', 'percent': 0}
 
-# --- 辅助函数：清理旧的临时压缩包 ---
 def clean_old_archives():
     now = time.time()
-    # 遍历根目录，找到所有以 batch_download_ 开头的 zip 文件
-    # 如果超过 3600 秒 (1小时) 没动过，就删掉
     for f in os.listdir(ROOT_DIR):
         if f.startswith('batch_download_') and f.endswith('.zip'):
             path = os.path.join(ROOT_DIR, f)
             try:
-                if os.stat(path).st_mtime < now - 3600:
-                    os.remove(path)
-                    print(f"Auto-cleaned old archive: {f}")
+                if os.stat(path).st_mtime < now - 3600: os.remove(path)
             except: pass
 
 # ================= 路由 =================
@@ -323,9 +324,7 @@ def upload_file():
 @app.route('/api/archive', methods=['POST'])
 @auth_required
 def archive_files():
-    # 【新增】每次打包前，先清理一下旧的垃圾文件
     clean_old_archives()
-    
     from tasks import compress_files_task
     abs_paths = [os.path.join(ROOT_DIR, p) for p in request.json.get('files')]
     task = compress_files_task.delay(abs_paths)
