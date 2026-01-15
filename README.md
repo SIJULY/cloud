@@ -5,7 +5,7 @@
 
 ---
 
-# 🚀 快速安装 
+###  🚀 快速安装 
 * 使用 Docker 一键启动，脚本会自动处理环境依赖和配置。
 ```bash
 bash <(curl -sSL https://raw.githubusercontent.com/SIJULY/Cloud-Drive/main/install.sh)
@@ -13,6 +13,13 @@ bash <(curl -sSL https://raw.githubusercontent.com/SIJULY/Cloud-Drive/main/insta
 
 ---
 
+# 📸 界面预览
+
+<img width="1496" height="1446" alt="image" src="https://github.com/user-attachments/assets/88f7319a-0893-42a9-ab01-f0e0cbc33ecb" />
+
+<img width="1496" height="891" alt="image" src="https://github.com/user-attachments/assets/0cb72fed-d3c7-43a5-befd-92b0554573fa" />
+
+---
 ## ✨ 核心特性 (Pro Max Highlights)
 
 ### 🚀 极致传输体验
